@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 jobs:
-  build-tdeck-baseline:
+  build-tdeck-compact:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -24,18 +24,37 @@ jobs:
 
       - name: Build standard LilyGO T-Deck BLE communicator
         env:
-          FIRMWARE_VERSION: baseline
-        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
+          FIRMWARE_VERSION: reference
+        run: |
+          /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
+          mkdir -p reference-out
+          cp out/* reference-out/
 
-      - name: Record firmware identity
+      - name: Build Communicator Compact target
+        env:
+          FIRMWARE_VERSION: compact
+        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
+
+      - name: Record firmware identities
         run: |
           echo "Commit: $GITHUB_SHA"
+          echo "Reference firmware:"
+          ls -lh reference-out
+          sha256sum reference-out/*
+          echo "Compact firmware:"
           ls -lh out
           sha256sum out/*
 
-      - name: Upload T-Deck baseline firmware
+      - name: Upload upstream T-Deck reference firmware
         uses: actions/upload-artifact@v7
         with:
-          name: tdeck-communicator-baseline
+          name: tdeck-upstream-reference
+          path: reference-out/*
+          if-no-files-found: error
+
+      - name: Upload Communicator Compact firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: tdeck-communicator-compact
           path: out/*
           if-no-files-found: error
