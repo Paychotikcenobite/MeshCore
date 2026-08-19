@@ -33,15 +33,16 @@ bool ST7789LCDDisplay::i2c_probe(TwoWire& wire, uint8_t addr) {
 
 // Color scheme
 #if defined(LILYGO_TDECK) && defined(MESHCORE_COMPACT_UI)
-ColorVal UIColor::window_bkg = 0x0882;    // #0B1114
-ColorVal UIColor::title_bkg = 0x10C3;     // #11191D
-ColorVal UIColor::title_txt = 0xE77E;     // #E6EEF0
-ColorVal UIColor::primary_txt = 0xE77E;   // #E6EEF0
-ColorVal UIColor::secondary_txt = 0x9515; // #93A3A8
-ColorVal UIColor::warning_txt = 0xE549;   // amber
-ColorVal UIColor::popup_bkg = 0x2187;     // #223238
-ColorVal UIColor::popup_txt = 0xE77E;
-ColorVal UIColor::corp_blue = 0x1514;     // muted teal
+// MeshCore Communicator Android dark palette, converted to RGB565.
+ColorVal UIColor::window_bkg = 0x0084;
+ColorVal UIColor::title_bkg = 0x08E6;
+ColorVal UIColor::title_txt = 0xFFFF;
+ColorVal UIColor::primary_txt = 0xFFFF;
+ColorVal UIColor::secondary_txt = 0xA5D9;
+ColorVal UIColor::warning_txt = 0xF565;
+ColorVal UIColor::popup_bkg = 0x1127;
+ColorVal UIColor::popup_txt = 0xFFFF;
+ColorVal UIColor::corp_blue = 0x11EF;
 #else
 ColorVal UIColor::window_bkg = ST77XX_WHITE;
 ColorVal UIColor::title_bkg = ST77XX_BLUE;
@@ -107,7 +108,14 @@ void ST7789LCDDisplay::clear() {
 }
 
 void ST7789LCDDisplay::startFrame(ColorVal bkg) {
+#if !(defined(LILYGO_TDECK) && defined(MESHCORE_COMPACT_UI))
+  // Legacy virtual-frame UIs expect startFrame() to clear the display. The
+  // native T-Deck Communicator owns its dirty regions and must not flash a
+  // full-screen clear on every key/touch event.
   display.fillScreen(bkg);
+#else
+  (void)bkg;
+#endif
   display.setTextColor(_color = UIColor::primary_txt);
   display.setTextSize((uint8_t)(1 * EFFECTIVE_SCALE_X));
   display.cp437(true);
