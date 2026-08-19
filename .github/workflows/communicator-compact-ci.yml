@@ -1,0 +1,38 @@
+name: Communicator Compact CI
+
+on:
+  push:
+    branches:
+      - communicator-compact
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-tdeck-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MeshCore build environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build standard LilyGO T-Deck BLE communicator
+        env:
+          FIRMWARE_VERSION: baseline
+        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
+
+      - name: Record firmware identity
+        run: |
+          echo "Commit: $GITHUB_SHA"
+          ls -lh out
+          sha256sum out/*
+
+      - name: Upload T-Deck baseline firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: tdeck-communicator-baseline
+          path: out/*
+          if-no-files-found: error
