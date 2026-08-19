@@ -31,6 +31,10 @@ static const ColorVal COMPACT_TEAL = 0x1514;
 static const ColorVal COMPACT_GREEN = 0x3E31;
 static const ColorVal COMPACT_AMBER = 0xE549;
 static const ColorVal COMPACT_BLUEGRAY = 0x4A8E;
+static const int CARD_Y = 76;
+static const int CARD_H = 30;
+static const int CARD_STEP = 33;
+static const int MAX_VISIBLE_ITEMS = 4;
 
 static int batteryPercent(uint16_t mv) {
   const int minMv = 3300;
@@ -63,16 +67,26 @@ class CompactHomeScreen : public UIScreen {
 public:
   enum Tab : uint8_t {
     CHATS = 0,
+    CHANNELS,
     NODES,
+    MAP,
+    TAB_COUNT
+  };
+
+  enum View : uint8_t {
+    HOME = 0,
+    CONTACTS,
     RADIO,
     SETTINGS,
-    TAB_COUNT
+    COMPOSE_CONTACT,
+    COMPOSE_CHANNEL
   };
 
   struct MsgEntry {
     uint32_t timestamp;
     uint8_t path_len;
     uint8_t unread;
+    bool outgoing;
     char origin[32];
     char text[72];
   };
@@ -81,9 +95,25 @@ private:
   UITask* _task;
   mesh::RTCClock* _rtc;
   uint8_t _tab;
+  uint8_t _view;
+  uint8_t _selected;
+
   MsgEntry _messages[4];
   uint8_t _message_count;
   uint8_t _message_head;
+
+  ContactInfo _contacts[MAX_VISIBLE_ITEMS];
+  uint8_t _contact_count;
+
+  ChannelDetails _channels[MAX_VISIBLE_ITEMS];
+  uint8_t _channel_indexes[MAX_VISIBLE_ITEMS];
+  uint8_t _channel_count;
+
+  ContactInfo _compose_contact;
+  ChannelDetails _compose_channel;
+  uint8_t _compose_channel_index;
+  char _compose[MAX_TEXT_LEN + 1];
+  uint16_t _compose_len;
 
   void drawStatus(DisplayDriver& d) {
     d.setColor(UIColor::title_bkg);
@@ -130,7 +160,7 @@ private:
   }
 
   void drawTabs(DisplayDriver& d) {
-    const char* labels[TAB_COUNT] = {"Chats", "Nodes", "Radio", "Settings"};
+    const char* labels[TAB_COUNT] = {"Chats", "Channels", "Nodes", "Map"};
     const int x0 = 8;
     const int gap = 3;
     const int w = (d.width() - 16 - gap * 3) / 4;
@@ -161,11 +191,11 @@ private:
     d.print(initials);
   }
 
-  void drawCardFrame(DisplayDriver& d, int y) {
+  void drawCardFrame(DisplayDriver& d, int y, bool selected = false) {
     d.setColor(COMPACT_PANEL);
-    d.fillRoundRect(8, y, d.width() - 16, 30, 7);
-    d.setColor(COMPACT_BORDER);
-    d.drawRoundRect(8, y, d.width() - 16, 30, 7);
+    d.fillRoundRect(8, y, d.width() - 16, CARD_H, 7);
+    d.setColor(selected ? COMPACT_TEAL : COMPACT_BORDER);
+    d.drawRoundRect(8, y, d.width() - 16, CARD_H, 7);
   }
 
   void drawMessageCard(DisplayDriver& d, const MsgEntry& m, int y, ColorVal avatarColor) {
@@ -184,7 +214,11 @@ private:
 
     d.setColor(UIColor::secondary_txt);
     d.drawTextRightAlign(d.width() - 18, y + 5, ago);
-    d.drawTextEllipsized(44, y + 17, 220, m.text);
+
+    char preview[84];
+    if (m.outgoing) snprintf(preview, sizeof(preview), "You: %s", m.text);
+    else StrHelper::strncpy(preview, m.text, sizeof(preview));
+    d.drawTextEllipsized(44, y + 17, 220, preview);
 
     if (m.unread) {
       d.setColor(COMPACT_TEAL);
@@ -198,8 +232,8 @@ private:
     }
   }
 
-  void drawNodeCard(DisplayDriver& d, const AdvertPath& a, int y, ColorVal avatarColor) {
-    drawCardFrame(d, y);
+  void drawNodeCard(DisplayDriver& d, const AdvertPath& a, int y, ColorVal avatarColor, bool selected = false) {
+    drawCardFrame(d, y, selected);
     drawAvatar(d, 25, y + 15, avatarColor, a.name);
 
     d.setTextSize(1);
@@ -216,7 +250,7 @@ private:
 
     char detail[52];
     if (a.path_len == 0xFF) {
-      snprintf(detail, sizeof(detail), "direct route unknown");
+      snprintf(detail, sizeof(detail), "route unknown");
     } else {
       snprintf(detail, sizeof(detail), "%u hop%s", a.path_len, a.path_len == 1 ? "" : "s");
     }
@@ -234,6 +268,49 @@ private:
     d.print(subtitle);
   }
 
+  void loadContacts() {
+    _contact_count = 0;
+    ContactInfo contact;
+    ContactsIterator it = the_mesh.startContactsIterator();
+    while (_contact_count < MAX_VISIBLE_ITEMS && it.hasNext(&the_mesh, contact)) {
+      if (contact.type == ADV_TYPE_CHAT && contact.name[0]) {
+        _contacts[_contact_count++] = contact;
+      }
+    }
+    if (_contact_count == 0) _selected = 0;
+    else if (_selected >= _contact_count) _selected = _contact_count - 1;
+  }
+
+  void loadChannels() {
+    _channel_count = 0;
+#ifdef MAX_GROUP_CHANNELS
+    for (int i = 0; i < MAX_GROUP_CHANNELS && _channel_count < MAX_VISIBLE_ITEMS; ++i) {
+      ChannelDetails channel;
+      if (the_mesh.getChannel(i, channel) && channel.name[0]) {
+        _channels[_channel_count] = channel;
+        _channel_indexes[_channel_count] = (uint8_t)i;
+        _channel_count++;
+      }
+    }
+#endif
+    if (_channel_count == 0) _selected = 0;
+    else if (_selected >= _channel_count) _selected = _channel_count - 1;
+  }
+
+  void addCachedMessage(uint8_t path_len, const char* from, const char* text, bool outgoing) {
+    _message_head = (_message_head + 1) % 4;
+    if (_message_count < 4) _message_count++;
+
+    MsgEntry& m = _messages[_message_head];
+    memset(&m, 0, sizeof(m));
+    m.timestamp = _rtc->getCurrentTime();
+    m.path_len = path_len;
+    m.unread = outgoing ? 0 : 1;
+    m.outgoing = outgoing;
+    StrHelper::strncpy(m.origin, from ? from : "Unknown", sizeof(m.origin));
+    StrHelper::strncpy(m.text, text ? text : "", sizeof(m.text));
+  }
+
   void drawChats(DisplayDriver& d) {
     char pill[20];
     snprintf(pill, sizeof(pill), "%d unread", _task->getMsgCount());
@@ -241,13 +318,13 @@ private:
     drawTabs(d);
 
     const ColorVal colors[4] = {COMPACT_TEAL, COMPACT_GREEN, COMPACT_BLUEGRAY, COMPACT_AMBER};
-    int y = 76;
+    int y = CARD_Y;
     int shown = 0;
 
     for (int i = 0; i < _message_count && shown < 4; ++i) {
       int idx = (_message_head + 4 - i) % 4;
       drawMessageCard(d, _messages[idx], y, colors[shown]);
-      y += 33;
+      y += CARD_STEP;
       shown++;
     }
 
@@ -257,7 +334,7 @@ private:
     for (int i = 0; i < recentCount && shown < 4; ++i) {
       if (!recent[i].name[0]) continue;
       drawNodeCard(d, recent[i], y, colors[shown]);
-      y += 33;
+      y += CARD_STEP;
       shown++;
     }
 
@@ -266,10 +343,37 @@ private:
     }
   }
 
+  void drawChannels(DisplayDriver& d) {
+    loadChannels();
+    char pill[20];
+    snprintf(pill, sizeof(pill), "%u configured", _channel_count);
+    drawHeader(d, "Channels", pill);
+    drawTabs(d);
+
+    const ColorVal colors[4] = {COMPACT_TEAL, COMPACT_GREEN, COMPACT_AMBER, COMPACT_BLUEGRAY};
+    int y = CARD_Y;
+    for (int i = 0; i < _channel_count; ++i) {
+      drawCardFrame(d, y, i == _selected);
+      drawAvatar(d, 25, y + 15, colors[i % 4], _channels[i].name);
+      d.setTextSize(1);
+      d.setColor(UIColor::primary_txt);
+      d.drawTextEllipsized(44, y + 6, 220, _channels[i].name);
+      d.setColor(UIColor::secondary_txt);
+      d.setCursor(44, y + 18);
+      d.print(i == _selected ? "Enter to compose" : "MeshCore group channel");
+      y += CARD_STEP;
+    }
+    if (_channel_count == 0) {
+      drawEmptyCard(d, y, "No configured channels", "Configure channels from companion app.");
+    }
+  }
+
   void drawNodes(DisplayDriver& d) {
     AdvertPath recent[4];
     memset(recent, 0, sizeof(recent));
     int count = the_mesh.getRecentlyHeard(recent, 4);
+    if (count <= 0) _selected = 0;
+    else if (_selected >= count) _selected = count - 1;
 
     char pill[20];
     snprintf(pill, sizeof(pill), "%d recent", count);
@@ -277,12 +381,12 @@ private:
     drawTabs(d);
 
     const ColorVal colors[4] = {COMPACT_GREEN, COMPACT_TEAL, COMPACT_BLUEGRAY, COMPACT_AMBER};
-    int y = 76;
+    int y = CARD_Y;
     int shown = 0;
     for (int i = 0; i < count && shown < 4; ++i) {
       if (!recent[i].name[0]) continue;
-      drawNodeCard(d, recent[i], y, colors[shown]);
-      y += 33;
+      drawNodeCard(d, recent[i], y, colors[shown], shown == _selected);
+      y += CARD_STEP;
       shown++;
     }
     if (shown == 0) {
@@ -290,15 +394,87 @@ private:
     }
   }
 
+  void drawMap(DisplayDriver& d) {
+    drawHeader(d, "Map", "GPS");
+    drawTabs(d);
+
+    const int x = 10;
+    const int y = 80;
+    const int w = d.width() - 20;
+    const int h = 112;
+    d.setColor(COMPACT_PANEL);
+    d.fillRoundRect(x, y, w, h, 8);
+    d.setColor(COMPACT_BORDER);
+    d.drawRoundRect(x, y, w, h, 8);
+
+    d.setColor(COMPACT_BORDER);
+    d.drawLine(x + w / 2, y + 12, x + w / 2, y + h - 12);
+    d.drawLine(x + 12, y + h / 2, x + w - 12, y + h / 2);
+    d.drawCircle(x + w / 2, y + h / 2, 28);
+    d.drawCircle(x + w / 2, y + h / 2, 10);
+
+    LocationProvider* loc = sensors.getLocationProvider();
+    d.setTextSize(1);
+    if (loc && loc->isValid()) {
+      d.setColor(COMPACT_GREEN);
+      d.fillCircle(x + w / 2, y + h / 2, 4);
+      char pos[48];
+      snprintf(pos, sizeof(pos), "%.4f  %.4f",
+               loc->getLatitude() / 1000000.0,
+               loc->getLongitude() / 1000000.0);
+      d.setColor(UIColor::primary_txt);
+      d.drawTextCentered(d.width() / 2, y + h - 17, pos);
+    } else {
+      d.setColor(UIColor::warning_txt);
+      d.drawTextCentered(d.width() / 2, y + h / 2 - 4, "NO GPS FIX");
+    }
+
+    d.setColor(UIColor::secondary_txt);
+    d.drawTextCentered(d.width() / 2, 197, "Offline map tiles come after core messaging");
+  }
+
+  void drawContacts(DisplayDriver& d) {
+    loadContacts();
+    char pill[20];
+    snprintf(pill, sizeof(pill), "%u chat", _contact_count);
+    drawHeader(d, "Contacts", pill);
+
+    const ColorVal colors[4] = {COMPACT_TEAL, COMPACT_GREEN, COMPACT_BLUEGRAY, COMPACT_AMBER};
+    int y = 55;
+    for (int i = 0; i < _contact_count; ++i) {
+      drawCardFrame(d, y, i == _selected);
+      drawAvatar(d, 25, y + 15, colors[i % 4], _contacts[i].name);
+      d.setTextSize(1);
+      d.setColor(UIColor::primary_txt);
+      d.drawTextEllipsized(44, y + 6, 220, _contacts[i].name);
+      d.setColor(UIColor::secondary_txt);
+      char route[40];
+      if (_contacts[i].out_path_len == OUT_PATH_UNKNOWN) {
+        snprintf(route, sizeof(route), "flood route");
+      } else {
+        snprintf(route, sizeof(route), "%u hop%s", _contacts[i].out_path_len,
+                 _contacts[i].out_path_len == 1 ? "" : "s");
+      }
+      d.setCursor(44, y + 18);
+      d.print(route);
+      y += CARD_STEP;
+    }
+
+    if (_contact_count == 0) {
+      drawEmptyCard(d, y, "No chat contacts", "Receive adverts or add contacts by phone.");
+    }
+
+    drawHintBar(d, "Trackball select   Enter compose   Esc back");
+  }
+
   void drawRadio(DisplayDriver& d) {
     drawHeader(d, "Radio", "Enter: advert");
-    drawTabs(d);
 
     NodePrefs* p = _task->getNodePrefs();
     const int x = 10;
-    const int y = 82;
+    const int y = 55;
     const int w = d.width() - 20;
-    const int h = 112;
+    const int h = 140;
 
     d.setColor(COMPACT_PANEL);
     d.fillRoundRect(x, y, w, h, 8);
@@ -309,44 +485,47 @@ private:
     d.setTextSize(1);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 94); d.print("Frequency");
+    d.setCursor(22, 69); d.print("Frequency");
     d.setColor(UIColor::primary_txt);
     snprintf(buf, sizeof(buf), "%.3f MHz", p->freq);
-    d.drawTextRightAlign(d.width() - 22, 94, buf);
+    d.drawTextRightAlign(d.width() - 22, 69, buf);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 116); d.print("LoRa");
+    d.setCursor(22, 93); d.print("LoRa");
     d.setColor(UIColor::primary_txt);
     snprintf(buf, sizeof(buf), "SF%d  BW %.0f  CR%d", p->sf, p->bw, p->cr);
-    d.drawTextRightAlign(d.width() - 22, 116, buf);
+    d.drawTextRightAlign(d.width() - 22, 93, buf);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 138); d.print("TX power");
+    d.setCursor(22, 117); d.print("TX power");
     d.setColor(UIColor::primary_txt);
     snprintf(buf, sizeof(buf), "%d dBm", p->tx_power_dbm);
-    d.drawTextRightAlign(d.width() - 22, 138, buf);
+    d.drawTextRightAlign(d.width() - 22, 117, buf);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 160); d.print("Noise floor");
+    d.setCursor(22, 141); d.print("Noise floor");
     d.setColor(UIColor::primary_txt);
     snprintf(buf, sizeof(buf), "%d dBm", radio_driver.getNoiseFloor());
-    d.drawTextRightAlign(d.width() - 22, 160, buf);
+    d.drawTextRightAlign(d.width() - 22, 141, buf);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 182); d.print("BLE companion");
+    d.setCursor(22, 165); d.print("BLE companion");
     d.setColor(_task->isBluetoothEnabled() ? COMPACT_GREEN : UIColor::warning_txt);
-    d.drawTextRightAlign(d.width() - 22, 182,
+    d.drawTextRightAlign(d.width() - 22, 165,
                          _task->isBluetoothEnabled() ? "enabled" : "disabled");
+
+    d.setColor(UIColor::secondary_txt);
+    d.setCursor(22, 181); d.print("Enter sends a self advert");
+    drawHintBar(d, "Enter advert   Esc back");
   }
 
   void drawSettings(DisplayDriver& d) {
     drawHeader(d, "Settings", "Enter: BLE");
-    drawTabs(d);
 
     const int x = 10;
-    const int y = 82;
+    const int y = 55;
     const int w = d.width() - 20;
-    const int h = 112;
+    const int h = 140;
     d.setColor(COMPACT_PANEL);
     d.fillRoundRect(x, y, w, h, 8);
     d.setColor(COMPACT_BORDER);
@@ -354,32 +533,81 @@ private:
 
     d.setTextSize(1);
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 94); d.print("Bluetooth");
+    d.setCursor(22, 69); d.print("Bluetooth");
     d.setColor(_task->isBluetoothEnabled() ? COMPACT_GREEN : UIColor::warning_txt);
-    d.drawTextRightAlign(d.width() - 22, 94,
+    d.drawTextRightAlign(d.width() - 22, 69,
                          _task->isBluetoothEnabled() ? "ON" : "OFF");
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 118); d.print("Battery");
+    d.setCursor(22, 93); d.print("Battery");
     char batt[24];
     snprintf(batt, sizeof(batt), "%d%%  %u mV",
              batteryPercent(_task->getBattMilliVolts()),
              _task->getBattMilliVolts());
     d.setColor(UIColor::primary_txt);
-    d.drawTextRightAlign(d.width() - 22, 118, batt);
+    d.drawTextRightAlign(d.width() - 22, 93, batt);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 142); d.print("Firmware");
+    d.setCursor(22, 117); d.print("Firmware");
     d.setColor(UIColor::primary_txt);
-    d.drawTextRightAlign(d.width() - 22, 142, FIRMWARE_VERSION);
+    d.drawTextRightAlign(d.width() - 22, 117, FIRMWARE_VERSION);
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 166); d.print("Input");
+    d.setCursor(22, 141); d.print("Input");
     d.setColor(UIColor::primary_txt);
-    d.drawTextRightAlign(d.width() - 22, 166, "trackball + keyboard");
+    d.drawTextRightAlign(d.width() - 22, 141, "trackball + keyboard");
 
     d.setColor(UIColor::secondary_txt);
-    d.setCursor(22, 182); d.print("Keys 1-4 switch tabs");
+    d.setCursor(22, 165); d.print("Enter toggles Bluetooth");
+    d.setCursor(22, 181); d.print("Long center at boot: CLI rescue");
+    drawHintBar(d, "Enter BLE   Esc back");
+  }
+
+  void drawComposeLines(DisplayDriver& d, int x, int y, int maxCharsPerLine) {
+    char line[52];
+    int lineNo = 0;
+    int pos = 0;
+    while (pos < _compose_len && lineNo < 5) {
+      int n = 0;
+      while (pos < _compose_len && n < maxCharsPerLine) {
+        line[n++] = _compose[pos++];
+      }
+      line[n] = 0;
+      d.setCursor(x, y + lineNo * 15);
+      d.print(line);
+      lineNo++;
+    }
+    if (_compose_len == 0) {
+      d.setColor(UIColor::secondary_txt);
+      d.setCursor(x, y);
+      d.print("Type a message...");
+    }
+  }
+
+  void drawCompose(DisplayDriver& d) {
+    const char* target = _view == COMPOSE_CONTACT ? _compose_contact.name : _compose_channel.name;
+    char pill[42];
+    snprintf(pill, sizeof(pill), "To: %s", target);
+    drawHeader(d, "Compose", pill);
+
+    d.setColor(COMPACT_PANEL);
+    d.fillRoundRect(10, 55, d.width() - 20, 112, 8);
+    d.setColor(COMPACT_TEAL);
+    d.drawRoundRect(10, 55, d.width() - 20, 112, 8);
+
+    d.setTextSize(1);
+    d.setColor(UIColor::primary_txt);
+    drawComposeLines(d, 20, 68, 46);
+
+    char count[24];
+    snprintf(count, sizeof(count), "%u/%u", _compose_len, (unsigned)MAX_TEXT_LEN);
+    d.setColor(UIColor::secondary_txt);
+    d.drawTextRightAlign(d.width() - 18, 151, count);
+
+    d.setColor(UIColor::secondary_txt);
+    d.setCursor(18, 180);
+    d.print("Physical keyboard input");
+    drawHintBar(d, "Enter send   Esc cancel   Del erase");
   }
 
   void drawFooter(DisplayDriver& d) {
@@ -389,13 +617,16 @@ private:
     d.setColor(COMPACT_BORDER);
     d.drawLine(0, y, d.width() - 1, y);
 
-    const char* labels[4] = {"Chats", "Nodes", "Radio", "Settings"};
+    const char* labels[4] = {"Compose", "Contacts", "Radio", "Settings"};
     const int w = d.width() / 4;
     d.setTextSize(1);
     for (int i = 0; i < 4; ++i) {
-      if (i == _tab) {
+      bool active = (_view == CONTACTS && i == 1) || (_view == RADIO && i == 2) ||
+                    (_view == SETTINGS && i == 3) ||
+                    ((_view == COMPOSE_CONTACT || _view == COMPOSE_CHANNEL) && i == 0);
+      if (active) {
         d.setColor(COMPACT_TEAL);
-        d.fillRoundRect(i * w + 8, y + 5, w - 16, 21, 6);
+        d.fillRoundRect(i * w + 5, y + 5, w - 10, 21, 6);
         d.setColor(UIColor::primary_txt);
       } else {
         d.setColor(UIColor::secondary_txt);
@@ -404,24 +635,109 @@ private:
     }
   }
 
+  void drawHintBar(DisplayDriver& d, const char* hint) {
+    d.setColor(UIColor::title_bkg);
+    d.fillRect(0, 208, d.width(), d.height() - 208);
+    d.setColor(COMPACT_BORDER);
+    d.drawLine(0, 208, d.width() - 1, 208);
+    d.setTextSize(1);
+    d.setColor(UIColor::secondary_txt);
+    d.drawTextCentered(d.width() / 2, 220, hint);
+  }
+
+  void beginComposeContact(const ContactInfo& contact) {
+    _compose_contact = contact;
+    _compose_len = 0;
+    _compose[0] = 0;
+    _view = COMPOSE_CONTACT;
+  }
+
+  void beginComposeChannel(const ChannelDetails& channel, uint8_t idx) {
+    _compose_channel = channel;
+    _compose_channel_index = idx;
+    _compose_len = 0;
+    _compose[0] = 0;
+    _view = COMPOSE_CHANNEL;
+  }
+
+  void sendCompose() {
+    if (_compose_len == 0) {
+      _task->showAlert("Message is empty", 1000);
+      return;
+    }
+
+    if (_view == COMPOSE_CONTACT) {
+      uint32_t expected_ack = 0;
+      uint32_t est_timeout = 0;
+      int result = the_mesh.sendMessage(_compose_contact, _rtc->getCurrentTime(), 0,
+                                        _compose, expected_ack, est_timeout);
+      if (result == MSG_SEND_FAILED) {
+        _task->showAlert("Message send failed", 1200);
+        return;
+      }
+      addCachedMessage(0xFF, _compose_contact.name, _compose, true);
+      _task->showAlert(result == MSG_SEND_SENT_DIRECT ? "Sent direct" : "Sent flood", 1200);
+    } else if (_view == COMPOSE_CHANNEL) {
+      bool ok = the_mesh.sendGroupMessage(_rtc->getCurrentTime(), _compose_channel.channel,
+                                          _task->getNodePrefs()->node_name,
+                                          _compose, _compose_len);
+      if (!ok) {
+        _task->showAlert("Channel send failed", 1200);
+        return;
+      }
+      addCachedMessage(0xFF, _compose_channel.name, _compose, true);
+      _task->showAlert("Channel message sent", 1200);
+    }
+
+    _compose_len = 0;
+    _compose[0] = 0;
+    _view = HOME;
+    _tab = CHATS;
+    _selected = 0;
+  }
+
+  bool handleComposeInput(char c) {
+    if (c == KEY_CANCEL) {
+      _compose_len = 0;
+      _compose[0] = 0;
+      _view = HOME;
+      return true;
+    }
+    if (c == KEY_ENTER) {
+      sendCompose();
+      return true;
+    }
+    if (c == 8 || (uint8_t)c == 127) {
+      if (_compose_len > 0) {
+        _compose[--_compose_len] = 0;
+      }
+      return true;
+    }
+    if ((uint8_t)c >= 32 && (uint8_t)c <= 126 && _compose_len < MAX_TEXT_LEN) {
+      _compose[_compose_len++] = c;
+      _compose[_compose_len] = 0;
+      return true;
+    }
+    return false;
+  }
+
 public:
   CompactHomeScreen(UITask* task, mesh::RTCClock* rtc)
-    : _task(task), _rtc(rtc), _tab(CHATS), _message_count(0), _message_head(0) {
+    : _task(task), _rtc(rtc), _tab(CHATS), _view(HOME), _selected(0),
+      _message_count(0), _message_head(3), _contact_count(0), _channel_count(0),
+      _compose_channel_index(0), _compose_len(0) {
     memset(_messages, 0, sizeof(_messages));
+    memset(_contacts, 0, sizeof(_contacts));
+    memset(_channels, 0, sizeof(_channels));
+    memset(&_compose_contact, 0, sizeof(_compose_contact));
+    memset(&_compose_channel, 0, sizeof(_compose_channel));
+    _compose[0] = 0;
   }
 
   void addMessage(uint8_t path_len, const char* from, const char* text) {
-    _message_head = (_message_head + 1) % 4;
-    if (_message_count < 4) _message_count++;
-
-    MsgEntry& m = _messages[_message_head];
-    memset(&m, 0, sizeof(m));
-    m.timestamp = _rtc->getCurrentTime();
-    m.path_len = path_len;
-    m.unread = 1;
-    StrHelper::strncpy(m.origin, from ? from : "Unknown", sizeof(m.origin));
-    StrHelper::strncpy(m.text, text ? text : "", sizeof(m.text));
+    addCachedMessage(path_len, from, text, false);
     _tab = CHATS;
+    _view = HOME;
   }
 
   void clearUnread() {
@@ -431,11 +747,28 @@ public:
   int render(DisplayDriver& d) override {
     drawStatus(d);
 
+    if (_view == CONTACTS) {
+      drawContacts(d);
+      return 1000;
+    }
+    if (_view == RADIO) {
+      drawRadio(d);
+      return 1000;
+    }
+    if (_view == SETTINGS) {
+      drawSettings(d);
+      return 1000;
+    }
+    if (_view == COMPOSE_CONTACT || _view == COMPOSE_CHANNEL) {
+      drawCompose(d);
+      return 250;
+    }
+
     switch (_tab) {
       case CHATS: drawChats(d); break;
+      case CHANNELS: drawChannels(d); break;
       case NODES: drawNodes(d); break;
-      case RADIO: drawRadio(d); break;
-      case SETTINGS: drawSettings(d); break;
+      case MAP: drawMap(d); break;
       default: _tab = CHATS; drawChats(d); break;
     }
 
@@ -444,30 +777,52 @@ public:
   }
 
   bool handleInput(char c) override {
-    if (c == KEY_LEFT) {
-      _tab = (_tab + TAB_COUNT - 1) % TAB_COUNT;
-      return true;
+    if (_view == COMPOSE_CONTACT || _view == COMPOSE_CHANNEL) {
+      return handleComposeInput(c);
     }
-    if (c == KEY_RIGHT) {
-      _tab = (_tab + 1) % TAB_COUNT;
-      return true;
+
+    if (_view == CONTACTS) {
+      loadContacts();
+      if (c == KEY_CANCEL) {
+        _view = HOME;
+        _selected = 0;
+        return true;
+      }
+      if (c == KEY_UP && _contact_count > 0) {
+        _selected = (_selected + _contact_count - 1) % _contact_count;
+        return true;
+      }
+      if (c == KEY_DOWN && _contact_count > 0) {
+        _selected = (_selected + 1) % _contact_count;
+        return true;
+      }
+      if (c == KEY_ENTER && _contact_count > 0) {
+        beginComposeContact(_contacts[_selected]);
+        return true;
+      }
+      return false;
     }
-    if (c >= '1' && c <= '4') {
-      _tab = (Tab)(c - '1');
-      return true;
-    }
-    if (c == KEY_CANCEL) {
-      _tab = CHATS;
-      return true;
-    }
-    if (c == KEY_ENTER) {
-      if (_tab == RADIO) {
+
+    if (_view == RADIO) {
+      if (c == KEY_CANCEL) {
+        _view = HOME;
+        return true;
+      }
+      if (c == KEY_ENTER) {
         _task->notify(UIEventType::ack);
         if (the_mesh.advert()) _task->showAlert("Advert sent", 1000);
         else _task->showAlert("Advert failed", 1000);
         return true;
       }
-      if (_tab == SETTINGS) {
+      return false;
+    }
+
+    if (_view == SETTINGS) {
+      if (c == KEY_CANCEL) {
+        _view = HOME;
+        return true;
+      }
+      if (c == KEY_ENTER) {
         if (_task->isBluetoothEnabled()) {
           _task->disableBluetooth();
           _task->showAlert("Bluetooth disabled", 1000);
@@ -477,6 +832,61 @@ public:
         }
         return true;
       }
+      return false;
+    }
+
+    if (c == KEY_LEFT) {
+      _tab = (_tab + TAB_COUNT - 1) % TAB_COUNT;
+      _selected = 0;
+      return true;
+    }
+    if (c == KEY_RIGHT) {
+      _tab = (_tab + 1) % TAB_COUNT;
+      _selected = 0;
+      return true;
+    }
+    if (c == KEY_UP) {
+      if (_selected > 0) _selected--;
+      return true;
+    }
+    if (c == KEY_DOWN) {
+      _selected++;
+      return true;
+    }
+    if (c >= '1' && c <= '4') {
+      _tab = (Tab)(c - '1');
+      _selected = 0;
+      return true;
+    }
+    if (c == 'c' || c == 'C') {
+      _view = CONTACTS;
+      _selected = 0;
+      return true;
+    }
+    if (c == 'o' || c == 'O') {
+      _view = CONTACTS;
+      _selected = 0;
+      return true;
+    }
+    if (c == 'r' || c == 'R') {
+      _view = RADIO;
+      return true;
+    }
+    if (c == 's' || c == 'S') {
+      _view = SETTINGS;
+      return true;
+    }
+    if (c == KEY_CANCEL) {
+      _tab = CHATS;
+      _selected = 0;
+      return true;
+    }
+    if (c == KEY_ENTER && _tab == CHANNELS) {
+      loadChannels();
+      if (_channel_count > 0) {
+        beginComposeChannel(_channels[_selected], _channel_indexes[_selected]);
+      }
+      return true;
     }
     return false;
   }
@@ -524,9 +934,9 @@ public:
   }
 };
 
-void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs) {
+void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs* node_prefs) {
   _display = display;
-  _sensors = sensors;
+  _sensors = sensors_ptr;
   _node_prefs = node_prefs;
   _msgcount = 0;
   _ui_started_at = millis();
@@ -637,12 +1047,6 @@ char UITask::pollKeyboard() {
   if (c == 0) return 0;
   if (c == '\n' || c == '\r') return KEY_ENTER;
   if (c == 27) return KEY_CANCEL;
-
-  if (c == 'a' || c == 'A' || c == 'h' || c == 'H') return KEY_LEFT;
-  if (c == 'd' || c == 'D' || c == 'l' || c == 'L') return KEY_RIGHT;
-  if (c == 'w' || c == 'W' || c == 'k' || c == 'K') return KEY_UP;
-  if (c == 's' || c == 'S' || c == 'j' || c == 'J') return KEY_DOWN;
-
   return c;
 }
 
