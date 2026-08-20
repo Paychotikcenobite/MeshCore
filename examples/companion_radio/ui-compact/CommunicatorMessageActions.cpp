@@ -170,12 +170,33 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
         }
       }
 
+      // MeshCore uses attempts >3 as the explicit extended retry form. Persist
+      // each retry number rather than repeatedly claiming every retry was #4.
+      if (m.send_attempt_valid && m.send_attempt >= 15) {
+        _task->showAlert("Retry limit reached (attempt 15)", 1200);
+        return true;
+      }
+      uint8_t retry_attempt = (m.send_attempt_valid && m.send_attempt >= 4)
+                                ? (uint8_t)(m.send_attempt + 1) : 4;
       uint32_t expected_ack = 0, timeout_ms = 0;
-      // attempt=4 is MeshCore's explicit retry form and makes the retry packet
-      // distinguishable from the original attempt even inside the same RTC second.
-      int result = the_mesh.sendMessage(_active_contact, _rtc->getCurrentTime(), 4,
+      int result = the_mesh.sendMessage(_active_contact, _rtc->getCurrentTime(), retry_attempt,
                                         m.text, expected_ack, timeout_ms);
       ok = result != MSG_SEND_FAILED;
+
+      // The compact wrapper stages attempt/route metadata before any failure
+      // return, so bind it to this exact selected message immediately.
+      char staged_attempt_origin[32] = {0};
+      uint8_t staged_attempt = 0, staged_path = OUT_PATH_UNKNOWN;
+      if (the_mesh.takeCompactAttemptStart(staged_attempt_origin, sizeof(staged_attempt_origin),
+                                           staged_attempt, staged_path)) {
+        m.send_attempt = staged_attempt;
+        m.send_attempt_valid = true;
+        m.path_len = staged_path;
+      } else {
+        // Missing staged metadata is not safe to paper over as a successful retry.
+        ok = false;
+      }
+
       if (ok) {
         char staged_origin[32] = {0};
         uint32_t staged_ack = 0, staged_timeout = 0;
@@ -183,7 +204,6 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
           m.send_state = SEND_SENDING;
           m.delivery_ack = staged_ack;
           m.delivery_deadline_ms = millis() + (staged_timeout ? staged_timeout : 5000U);
-          m.path_len = _active_contact.out_path_len;
         } else {
           // Never turn an untracked retry into a success claim.
           m.send_state = SEND_FAILED;
@@ -199,6 +219,8 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
       m.delivery_ack = 0;
       m.delivery_deadline_ms = 0;
       m.path_len = OUT_PATH_UNKNOWN;
+      m.send_attempt_valid = false; // group text has no direct-message attempt field
+      m.send_attempt = 0;
     }
 
     if (!ok) m.send_state = SEND_FAILED;
@@ -324,16 +346,20 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
     d.setColor(sub);
     drawWrapped(d, 38, 96, 244, 2, status);
 
-    char route[80];
+    char route[88];
     if (!m.outgoing) {
       if (m.path_len == OUT_PATH_UNKNOWN) strcpy(route, "Receive path: unknown / flood metadata unavailable");
       else snprintf(route, sizeof(route), "Receive path: %u hop%s", m.path_len, m.path_len == 1 ? "" : "s");
     } else if (_active_kind == ROW_CHANNEL) {
       strcpy(route, "Group delivery is intentionally not peer-confirmed");
+    } else if (m.send_attempt_valid && m.path_len == OUT_PATH_UNKNOWN) {
+      snprintf(route, sizeof(route), "Attempt %u: flood / no stored direct path", m.send_attempt);
+    } else if (m.send_attempt_valid) {
+      snprintf(route, sizeof(route), "Attempt %u: directed, %u hop%s", m.send_attempt, m.path_len, m.path_len == 1 ? "" : "s");
     } else if (m.path_len == OUT_PATH_UNKNOWN) {
-      strcpy(route, "Send route: flood / no stored direct path");
+      strcpy(route, "Attempt unknown; route flood / no stored path");
     } else {
-      snprintf(route, sizeof(route), "Send route: directed, %u hop%s", m.path_len, m.path_len == 1 ? "" : "s");
+      snprintf(route, sizeof(route), "Attempt unknown; directed, %u hop%s", m.path_len, m.path_len == 1 ? "" : "s");
     }
     drawWrapped(d, 38, 124, 244, 2, route);
 

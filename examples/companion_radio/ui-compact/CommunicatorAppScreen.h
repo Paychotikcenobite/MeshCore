@@ -124,6 +124,8 @@ private:
     uint8_t path_len;
     uint8_t unread;
     uint8_t send_state;
+    uint8_t send_attempt;
+    bool send_attempt_valid;
     bool outgoing;
     char origin[32];
     char text[144];

@@ -17,6 +17,25 @@ bool deadlinePassed(uint32_t now, uint32_t deadline) {
 
 void CommunicatorAppScreen::reconcileDirectSendState() {
   bool changed = false;
+
+  // Attempt metadata is staged independently of ACK registration so even a
+  // failed direct send preserves the attempted route and attempt number.
+  char attempt_origin[32] = {0};
+  uint8_t attempt = 0, attempt_path_len = OUT_PATH_UNKNOWN;
+  if (the_mesh.takeCompactAttemptStart(attempt_origin, sizeof(attempt_origin), attempt, attempt_path_len)) {
+    for (int n = 0; n < _message_count; ++n) {
+      int idx = (_message_head + MESSAGE_CACHE - n) % MESSAGE_CACHE;
+      MessageEntry& m = _messages[idx];
+      if (m.outgoing && !m.send_attempt_valid && strcmp(m.origin, attempt_origin) == 0) {
+        m.send_attempt = attempt;
+        m.send_attempt_valid = true;
+        m.path_len = attempt_path_len;
+        changed = true;
+        break;
+      }
+    }
+  }
+
   char origin[32] = {0};
   uint32_t ack = 0;
   uint32_t timeout_ms = 0;
@@ -34,9 +53,9 @@ void CommunicatorAppScreen::reconcileDirectSendState() {
         m.delivery_ack = ack;
         uint32_t wait_ms = timeout_ms ? timeout_ms : 5000U;
         m.delivery_deadline_ms = millis() + wait_ms;
-        if (_active_kind == ROW_CONTACT && strcmp(m.origin, _active_name) == 0) {
-          // Persist the route that was actually selected for this send. OUT_PATH_UNKNOWN
-          // remains a truthful marker for flood/no stored direct route.
+        if (_active_kind == ROW_CONTACT && strcmp(m.origin, _active_name) == 0 && !m.send_attempt_valid) {
+          // Defensive fallback only. Normally takeCompactAttemptStart() above
+          // already recorded the exact planned route before this ACK stage.
           m.path_len = _active_contact.out_path_len;
         }
         changed = true;

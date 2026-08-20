@@ -120,6 +120,7 @@ public:
 
   bool compactSendStartPending() const;
   bool takeCompactSendStart(char* origin, size_t origin_len, uint32_t& ack, uint32_t& timeout_ms);
+  bool takeCompactAttemptStart(char* origin, size_t origin_len, uint8_t& attempt, uint8_t& path_len);
   bool isCompactAckPending(uint32_t ack) const;
   void releaseCompactAck(uint32_t ack);
 #endif

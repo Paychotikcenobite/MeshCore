@@ -12,6 +12,13 @@ struct CompactSendStart {
   uint32_t timeout_ms;
 };
 
+struct CompactAttemptStart {
+  bool ready;
+  char origin[32];
+  uint8_t attempt;
+  uint8_t path_len;
+};
+
 struct CompactAckTrack {
   uint32_t ack;
   uint8_t slot;
@@ -19,6 +26,7 @@ struct CompactAckTrack {
 };
 
 CompactSendStart g_compact_send_start = {};
+CompactAttemptStart g_compact_attempt_start = {};
 CompactAckTrack g_compact_ack_tracks[EXPECTED_ACK_TABLE_SIZE] = {};
 constexpr unsigned long kAckEntryStaleMs = 120000UL;
 constexpr uint8_t kInvalidAckSlot = 0xFF;
@@ -65,6 +73,15 @@ int MyMesh::sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp,
                                uint32_t& expected_ack, uint32_t& est_timeout) {
   expected_ack = 0;
   est_timeout = 0;
+
+  // Stage the attempted packet metadata before any failure return. This lets
+  // the UI persist both attempt number and planned route even when packet
+  // creation/table capacity fails and no ACK token can be registered.
+  memset(&g_compact_attempt_start, 0, sizeof(g_compact_attempt_start));
+  g_compact_attempt_start.ready = true;
+  strncpy(g_compact_attempt_start.origin, recipient.name, sizeof(g_compact_attempt_start.origin) - 1);
+  g_compact_attempt_start.attempt = attempt;
+  g_compact_attempt_start.path_len = recipient.out_path_len;
 
   ContactInfo* stored = lookupContactByPubKey(recipient.id.pub_key, PUB_KEY_SIZE);
   if (!stored) return MSG_SEND_FAILED;
@@ -125,6 +142,18 @@ bool MyMesh::takeCompactSendStart(char* origin, size_t origin_len, uint32_t& ack
   ack = g_compact_send_start.ack;
   timeout_ms = g_compact_send_start.timeout_ms;
   g_compact_send_start.ready = false;
+  return true;
+}
+
+bool MyMesh::takeCompactAttemptStart(char* origin, size_t origin_len, uint8_t& attempt, uint8_t& path_len) {
+  if (!g_compact_attempt_start.ready) return false;
+  if (origin && origin_len) {
+    strncpy(origin, g_compact_attempt_start.origin, origin_len - 1);
+    origin[origin_len - 1] = 0;
+  }
+  attempt = g_compact_attempt_start.attempt;
+  path_len = g_compact_attempt_start.path_len;
+  g_compact_attempt_start.ready = false;
   return true;
 }
 

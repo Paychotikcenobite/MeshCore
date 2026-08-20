@@ -23,6 +23,15 @@ const char* kDraftTmp = "/mcc_drafts_v1.tmp";
 const char* kDraftBak = "/mcc_drafts_v1.bak";
 const char* kDraftBad = "/mcc_drafts_v1.bad";
 
+constexpr uint8_t kFlagOutgoing = 0x01;
+constexpr uint8_t kFlagUnread = 0x02;
+constexpr uint8_t kFlagDeleted = 0x04;
+// Schema-v1 reserved bits are used without changing HistoryRecord size:
+// bit3 says an outbound direct-send attempt is known; bits4..7 store 0..15.
+constexpr uint8_t kFlagAttemptValid = 0x08;
+constexpr uint8_t kAttemptShift = 4;
+constexpr uint8_t kAttemptMask = 0xF0;
+
 #pragma pack(push, 1)
 struct HistoryHeader {
   uint32_t magic;
@@ -41,7 +50,7 @@ struct HistoryRecord {
   uint64_t reply_to;
   uint32_t timestamp;
   uint8_t conv_kind;       // 1=direct contact, 2=channel, 3=unresolved fallback
-  uint8_t flags;           // bit0 outgoing, bit1 unread, bit2 deleted
+  uint8_t flags;           // bits0..2 legacy; bit3 + bits4..7 encode send attempt
   uint8_t send_state;
   uint8_t path_len;
   uint8_t conv_key[32];
@@ -142,6 +151,16 @@ bool validHistoryHeader(const HistoryHeader& h) {
 bool validRecord(const HistoryRecord& r) {
   return r.magic == kRecordMagic && r.version == kSchemaVersion && r.size == sizeof(HistoryRecord) &&
          r.id != 0 && r.crc == crc32((const uint8_t*)&r, offsetof(HistoryRecord, crc));
+}
+
+uint8_t historyFlagsFor(bool outgoing, uint8_t unread, bool attemptValid, uint8_t attempt, bool deleted) {
+  if (deleted) return kFlagDeleted;
+  uint8_t flags = (outgoing ? kFlagOutgoing : 0) | (unread ? kFlagUnread : 0);
+  if (outgoing && attemptValid) {
+    flags |= kFlagAttemptValid;
+    flags |= (uint8_t)((attempt & 0x0F) << kAttemptShift);
+  }
+  return flags;
 }
 
 DraftHeader makeDraftHeader(uint16_t count) {
@@ -252,11 +271,14 @@ uint32_t messageContentHash(uint32_t ts, bool outgoing, const char* origin, cons
 }
 
 uint32_t messagePersistHash(uint32_t contentHash, uint8_t unread, uint8_t sendState, uint8_t pathLen,
-                            uint8_t kind, const uint8_t key[32], uint64_t replyTo) {
+                            bool attemptValid, uint8_t attempt, uint8_t kind,
+                            const uint8_t key[32], uint64_t replyTo) {
   uint32_t h = fnv1a(&contentHash, sizeof(contentHash));
   h = fnv1a(&unread, sizeof(unread), h);
   h = fnv1a(&sendState, sizeof(sendState), h);
   h = fnv1a(&pathLen, sizeof(pathLen), h);
+  h = fnv1a(&attemptValid, sizeof(attemptValid), h);
+  if (attemptValid) h = fnv1a(&attempt, sizeof(attempt), h);
   h = fnv1a(&kind, sizeof(kind), h);
   h = fnv1a(key, 32, h);
   return fnv1a(&replyTo, sizeof(replyTo), h);
@@ -456,7 +478,7 @@ void CommunicatorAppScreen::persistenceBegin() {
 
     int slot = -1;
     for (int i = 0; i < kCacheSlots; ++i) if (g.ids[i] == r.id) { slot = i; break; }
-    if (r.flags & 0x04) {
+    if (r.flags & kFlagDeleted) {
       if (slot >= 0) {
         memset(&_messages[slot], 0, sizeof(_messages[slot]));
         g.ids[slot] = 0; g.content_hash[slot] = g.persist_hash[slot] = 0;
@@ -476,9 +498,11 @@ void CommunicatorAppScreen::persistenceBegin() {
     memset(&m, 0, sizeof(m));
     m.timestamp = r.timestamp;
     m.path_len = r.path_len;
-    m.unread = (r.flags & 0x02) ? 1 : 0;
+    m.unread = (r.flags & kFlagUnread) ? 1 : 0;
     m.send_state = r.send_state;
-    m.outgoing = (r.flags & 0x01) != 0;
+    m.outgoing = (r.flags & kFlagOutgoing) != 0;
+    m.send_attempt_valid = m.outgoing && ((r.flags & kFlagAttemptValid) != 0);
+    m.send_attempt = m.send_attempt_valid ? (uint8_t)((r.flags & kAttemptMask) >> kAttemptShift) : 0;
     StrHelper::strncpy(m.origin, r.origin, sizeof(m.origin));
     StrHelper::strncpy(m.text, r.text, sizeof(m.text));
 
@@ -499,6 +523,7 @@ void CommunicatorAppScreen::persistenceBegin() {
     g.reply_to[slot] = r.reply_to;
     g.content_hash[slot] = messageContentHash(m.timestamp, m.outgoing, m.origin, m.text);
     g.persist_hash[slot] = messagePersistHash(g.content_hash[slot], m.unread, m.send_state, m.path_len,
+                                               m.send_attempt_valid, m.send_attempt,
                                                g.conv_kind[slot], g.conv_key[slot], g.reply_to[slot]);
   }
   if (pos != total) g.needs_compact = true; // partial write/corrupt tail: keep valid prefix
@@ -553,7 +578,8 @@ void CommunicatorAppScreen::persistenceCheckpoint(bool force) {
     r.reply_to = g.reply_to[i];
     r.timestamp = _messages[i].timestamp;
     r.conv_kind = g.conv_kind[i];
-    r.flags = deleted ? 0x04 : ((_messages[i].outgoing ? 0x01 : 0) | (_messages[i].unread ? 0x02 : 0));
+    r.flags = historyFlagsFor(_messages[i].outgoing, _messages[i].unread,
+                              _messages[i].send_attempt_valid, _messages[i].send_attempt, deleted);
     r.send_state = _messages[i].send_state;
     r.path_len = _messages[i].path_len;
     memcpy(r.conv_key, g.conv_key[i], 32);
@@ -600,6 +626,7 @@ void CommunicatorAppScreen::persistenceCheckpoint(bool force) {
     }
 
     uint32_t persisted = messagePersistHash(content, m.unread, m.send_state, m.path_len,
+                                             m.send_attempt_valid, m.send_attempt,
                                              g.conv_kind[i], g.conv_key[i], g.reply_to[i]);
     if (persisted != g.persist_hash[i]) {
       if (appendSlot(i, false)) {
@@ -669,7 +696,8 @@ void CommunicatorAppScreen::persistenceCheckpoint(bool force) {
     HistoryRecord r{};
     r.magic = kRecordMagic; r.version = kSchemaVersion; r.size = sizeof(r); r.id = g.ids[i];
     r.reply_to = g.reply_to[i]; r.timestamp = _messages[i].timestamp; r.conv_kind = g.conv_kind[i];
-    r.flags = (_messages[i].outgoing ? 0x01 : 0) | (_messages[i].unread ? 0x02 : 0);
+    r.flags = historyFlagsFor(_messages[i].outgoing, _messages[i].unread,
+                              _messages[i].send_attempt_valid, _messages[i].send_attempt, false);
     r.send_state = _messages[i].send_state; r.path_len = _messages[i].path_len;
     memcpy(r.conv_key, g.conv_key[i], 32);
     StrHelper::strncpy(r.origin, _messages[i].origin, sizeof(r.origin));
