@@ -64,7 +64,11 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs
 
   home = new CommunicatorAppScreen(this, &rtc_clock);
   curr = home;
-  ((CommunicatorAppScreen*)home)->persistenceBegin();
+  CommunicatorAppScreen* app = (CommunicatorAppScreen*)home;
+  app->persistenceBegin();
+  // Rehydrate contacts created directly on the standalone T-Deck after the
+  // MeshCore store has completed its normal startup load.
+  app->manualContactsBegin();
   _next_refresh = 0;
   showAlert(_touch_ready ? "GT911 touch ready" : "GT911 TOUCH FAILED", _touch_ready ? 900 : 3000);
 }
@@ -271,24 +275,27 @@ void UITask::loop() {
       _display->turnOn();
       if (app) app->markAllDirty();
     } else if (app) {
-      // Checkpoint drafts/state before any navigation event can change route.
       app->persistenceCheckpoint(true);
 
       bool handled = false;
-      if (gesture == COMPACT_TOUCH_TAP && ty <= 42) {
-        if (tx >= 277) { app->openSettingsSingleTop(); handled = true; }
-        else if (tx >= 234) { app->openRadioSingleTop(); handled = true; }
+      // The Add Contact editor is modal; don't let persistent-header actions
+      // leak through it while the user is entering a key.
+      if (app->contactAddActive()) {
+        handled = app->handleContactAddTouch(tx, ty, gesture);
+      } else {
+        // Intercept Add contact before the older New Conversation placeholder.
+        handled = app->tryBeginContactAdd(tx, ty, gesture);
+        if (!handled && gesture == COMPACT_TOUCH_TAP && ty <= 42) {
+          if (tx >= 277) { app->openSettingsSingleTop(); handled = true; }
+          else if (tx >= 234) { app->openRadioSingleTop(); handled = true; }
+        }
+        if (!handled && gesture == COMPACT_TOUCH_TAP && tx < 42 && ty >= 44 && ty <= 78) {
+          app->navigateBack();
+          handled = true;
+        }
+        if (!handled) handled = app->handlePersistentDataTouch(tx, ty, gesture);
+        if (!handled) app->handleTouch(tx, ty, gesture);
       }
-      // Universal daughter-screen back hitbox. This fixes New conversation and
-      // also prevents individual route handlers from drifting apart.
-      if (!handled && gesture == COMPACT_TOUCH_TAP && tx < 42 && ty >= 44 && ty <= 78) {
-        app->navigateBack();
-        handled = true;
-      }
-      // Piece 3 owns the Data & backup description now that history/drafts are
-      // actually durable; do not let the old placeholder text claim otherwise.
-      if (!handled) handled = app->handlePersistentDataTouch(tx, ty, gesture);
-      if (!handled) app->handleTouch(tx, ty, gesture);
       app->persistenceCheckpoint(false);
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;
@@ -298,7 +305,8 @@ void UITask::loop() {
   char c = pollInput();
   if (c && curr) {
     if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
-    curr->handleInput(c);
+    if (app && app->contactAddActive()) app->handleContactAddInput(c);
+    else curr->handleInput(c);
     if (app) app->persistenceCheckpoint(false);
     _next_refresh = 0;
   }
@@ -309,9 +317,9 @@ void UITask::loop() {
     if (millis() >= _next_refresh && curr) {
       _display->startFrame();
       int delay_ms = curr->render(*_display);
-      // Overlay the improved Wi-Fi/settings glyphs after every full/partial
-      // screen render so the persistent header remains visually consistent.
-      if (app) app->redrawHeaderActionIcons(*_display);
+      if (app && app->contactAddActive()) app->drawContactAddOverlay(*_display);
+      // v11 uses anti-aliased 4-bit-alpha Fluent/Windows-like icon masks.
+      if (app) app->redrawHeaderActionIconsFluent(*_display);
       if (_alert_expiry) {
         const int x = 38, y = 95, w = 244, h = 46;
         _display->setColor(ALERT_BG);
