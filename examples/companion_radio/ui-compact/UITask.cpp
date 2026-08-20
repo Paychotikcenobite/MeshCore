@@ -296,6 +296,7 @@ void UITask::loop() {
         if (!handled) handled = app->handlePersistentDataTouch(tx, ty, gesture);
         if (!handled) app->handleTouch(tx, ty, gesture);
       }
+      app->reconcileDirectSendState();
       app->persistenceCheckpoint(false);
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;
@@ -307,11 +308,17 @@ void UITask::loop() {
     if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
     if (app && app->contactAddActive()) app->handleContactAddInput(c);
     else curr->handleInput(c);
-    if (app) app->persistenceCheckpoint(false);
+    if (app) {
+      app->reconcileDirectSendState();
+      app->persistenceCheckpoint(false);
+    }
     _next_refresh = 0;
   }
   if (curr) curr->poll();
-  if (app) app->persistenceCheckpoint(false);
+  if (app) {
+    app->reconcileDirectSendState();
+    app->persistenceCheckpoint(false);
+  }
 
   if (_display && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
@@ -321,6 +328,7 @@ void UITask::loop() {
       bool full_visual = app && app->fullVisualRedrawPending();
       _display->startFrame();
       int delay_ms = curr->render(*_display);
+      if (app) app->drawDirectSendOverlay(*_display);
       if (app && app->contactAddActive()) {
         app->drawContactAddOverlay(*_display);
         full_visual = true;

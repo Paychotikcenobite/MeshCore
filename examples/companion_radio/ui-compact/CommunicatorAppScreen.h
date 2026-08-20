@@ -52,6 +52,11 @@ public:
   void redrawHeaderActionIconsFluent(DisplayDriver& display);
   bool fullVisualRedrawPending() const;
 
+  // Piece 4 delivery lifecycle. The radio ACK table remains authoritative;
+  // these methods only reconcile and render the compact UI's local state.
+  void reconcileDirectSendState();
+  void drawDirectSendOverlay(DisplayDriver& display);
+
 private:
   enum Route : uint8_t {
     ROUTE_MAIN = 0,
@@ -80,10 +85,13 @@ private:
   enum RepeaterSort : uint8_t { REPEATER_RECENT = 0, REPEATER_DISTANCE = 1 };
   enum RowKind : uint8_t { ROW_NONE = 0, ROW_CONTACT, ROW_CHANNEL, ROW_REPEATER, ROW_RECENT_REPEATER, ROW_UNKNOWN };
   enum Dirty : uint8_t { DIRTY_NONE = 0, DIRTY_COMPOSER, DIRTY_ALL };
-  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT, SEND_FAILED };
+  // Preserve the persisted values of SENT=1 and FAILED=2 from schema v1.
+  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT = 1, SEND_FAILED = 2, SEND_SENDING = 3 };
 
   struct MessageEntry {
     uint32_t timestamp;
+    uint32_t delivery_ack;
+    uint32_t delivery_deadline_ms;
     uint8_t path_len;
     uint8_t unread;
     uint8_t send_state;

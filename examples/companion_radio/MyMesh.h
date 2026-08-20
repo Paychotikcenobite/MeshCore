@@ -100,6 +100,22 @@ public:
   bool advert();
   void enterCLIRescue();
 
+#ifdef MESHCORE_COMPACT_UI
+  // The compact on-device composer owns a fixed-size char buffer. This overload
+  // binds only to that array form, leaving the existing pointer-based phone/BLE
+  // send path on BaseChatMesh unchanged.
+  using BaseChatMesh::sendMessage;
+  template <size_t N>
+  int sendMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, char (&text)[N],
+                  uint32_t& expected_ack, uint32_t& est_timeout) {
+    return sendCompactMessage(recipient, timestamp, attempt, text, expected_ack, est_timeout);
+  }
+  bool compactSendStartPending() const;
+  bool takeCompactSendStart(char* origin, size_t origin_len, uint32_t& ack, uint32_t& timeout_ms);
+  bool isCompactAckPending(uint32_t ack) const;
+  void releaseCompactAck(uint32_t ack);
+#endif
+
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
 protected:
@@ -186,6 +202,11 @@ public:
   bool hasPendingWork() const;
 
 private:
+#ifdef MESHCORE_COMPACT_UI
+  int sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text,
+                         uint32_t& expected_ack, uint32_t& est_timeout);
+#endif
+
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
