@@ -10,9 +10,6 @@
 
 class UITask;
 
-// Touch gestures delivered by UITask. The first five values preserve the
-// physically validated v8 touchscreen path; LONG_PRESS only adds the compact
-// conversation menu used by the Android Communicator.
 enum CompactTouchGesture : uint8_t {
   COMPACT_TOUCH_TAP = 0,
   COMPACT_TOUCH_SWIPE_UP = 1,
@@ -33,6 +30,7 @@ public:
   void addMessage(uint8_t path_len, const char* from, const char* text);
   void clearUnread();
   void markAllDirty();
+  bool shouldWakeForMessage(const char* from_name);
 
 private:
   enum Route : uint8_t {
@@ -78,7 +76,7 @@ private:
     uint8_t kind;
     uint8_t identity[32];
     uint8_t channel_index;
-    uint8_t flags;  // bit0 favorite, bit1 pinned, bit2 muted, bit3 archived
+    uint8_t flags;
     char alias[24];
   };
 
