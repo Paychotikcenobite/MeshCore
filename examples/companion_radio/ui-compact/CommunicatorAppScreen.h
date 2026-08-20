@@ -47,9 +47,21 @@ public:
   void persistenceCheckpoint(bool force = false);
   bool handlePersistentDataTouch(int16_t x, int16_t y, uint8_t gesture);
 
-  // Redraw the two persistent header actions with compact Material-like glyphs
-  // after the base screen renders its header.
+  // Manual contact workflow for the standalone T-Deck. The phone can scan QR;
+  // standard T-Deck cannot, so this accepts a display name plus the contact's
+  // full 32-byte public key from the physical keyboard. Records are persisted
+  // separately and rehydrated into BaseChatMesh after boot.
+  void manualContactsBegin();
+  bool tryBeginContactAdd(int16_t x, int16_t y, uint8_t gesture);
+  bool contactAddActive() const;
+  bool handleContactAddTouch(int16_t x, int16_t y, uint8_t gesture);
+  bool handleContactAddInput(char c);
+  void drawContactAddOverlay(DisplayDriver& display);
+
+  // Legacy v10 header redraw remains for compatibility; v11 uses the Fluent
+  // alpha-mask renderer below for Windows-like Wi-Fi and Settings glyphs.
   void redrawHeaderActionIcons(DisplayDriver& display);
+  void redrawHeaderActionIconsFluent(DisplayDriver& display);
 
 private:
   enum Route : uint8_t {
