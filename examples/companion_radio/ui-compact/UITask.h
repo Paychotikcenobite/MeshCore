@@ -21,12 +21,14 @@ class UITask : public AbstractUITask {
   unsigned long _trackball_poll_at;
   unsigned long _touch_poll_at;
   unsigned long _touch_last_seen;
+  unsigned long _touch_started_at;
   unsigned long _ui_started_at;
   int _msgcount;
   char _alert[80];
 
   bool _touch_ready;
   bool _touch_down;
+  bool _touch_long_sent;
   int16_t _touch_start_x, _touch_start_y;
   int16_t _touch_x, _touch_y;
 
@@ -45,8 +47,8 @@ public:
   UITask(mesh::MainBoard* board, MultiSerialInterface* serial)
     : AbstractUITask(board, serial), _display(nullptr), _sensors(nullptr), _node_prefs(nullptr),
       _next_refresh(0), _auto_off(0), _alert_expiry(0), _keyboard_poll_at(0),
-      _trackball_poll_at(0), _touch_poll_at(0), _touch_last_seen(0), _ui_started_at(0),
-      _msgcount(0), _touch_ready(false), _touch_down(false), _touch_start_x(0), _touch_start_y(0),
+      _trackball_poll_at(0), _touch_poll_at(0), _touch_last_seen(0), _touch_started_at(0), _ui_started_at(0),
+      _msgcount(0), _touch_ready(false), _touch_down(false), _touch_long_sent(false), _touch_start_x(0), _touch_start_y(0),
       _touch_x(0), _touch_y(0), home(nullptr), curr(nullptr) {
     _alert[0] = 0;
   }
