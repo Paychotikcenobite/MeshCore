@@ -32,7 +32,7 @@ jobs:
 
       - name: Build Communicator Compact target
         env:
-          FIRMWARE_VERSION: compact-v6-touch-recovery
+          FIRMWARE_VERSION: compact-v8-touch-reliability
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
       - name: Record firmware identities
