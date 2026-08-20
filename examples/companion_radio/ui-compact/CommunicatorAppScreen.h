@@ -105,8 +105,9 @@ private:
   enum RowKind : uint8_t { ROW_NONE = 0, ROW_CONTACT, ROW_CHANNEL, ROW_REPEATER, ROW_RECENT_REPEATER, ROW_UNKNOWN };
   enum Dirty : uint8_t { DIRTY_NONE = 0, DIRTY_COMPOSER, DIRTY_ALL };
   // Preserve persisted schema-v1 SENT=1 and FAILED=2. CONFIRMED=4 is new and
-  // may only be written after a real direct-message ACK is observed.
-  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT = 1, SEND_FAILED = 2, SEND_SENDING = 3, SEND_CONFIRMED = 4 };
+  // may only be written after a real direct-message ACK is observed. STOPPED=5
+  // means local ACK tracking was deliberately abandoned after RF handoff.
+  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT = 1, SEND_FAILED = 2, SEND_SENDING = 3, SEND_CONFIRMED = 4, SEND_STOPPED = 5 };
 
   struct MessageEntry {
     uint32_t timestamp;

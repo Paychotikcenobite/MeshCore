@@ -99,7 +99,7 @@ void CommunicatorAppScreen::drawDirectSendOverlay(DisplayDriver& d) {
 
   for (int i = 0; i < count; ++i) {
     const MessageEntry& m = _messages[indexes[i]];
-    if (m.outgoing && (m.send_state == SEND_SENDING || m.send_state == SEND_CONFIRMED)) {
+    if (m.outgoing && (m.send_state == SEND_SENDING || m.send_state == SEND_CONFIRMED || m.send_state == SEND_STOPPED)) {
       int tw = d.getTextWidth(m.text);
       if (tw > 205) tw = 205;
       int w = tw + 18;
@@ -114,7 +114,9 @@ void CommunicatorAppScreen::drawDirectSendOverlay(DisplayDriver& d) {
       d.setTextSize(1);
       d.setColor(label);
       d.setCursor(x + 8, y + 19);
-      d.print(m.send_state == SEND_SENDING ? "Sending" : "Confirmed");
+      if (m.send_state == SEND_SENDING) d.print("Sending");
+      else if (m.send_state == SEND_CONFIRMED) d.print("Confirmed");
+      else d.print("Stopped");
     }
     y += 35;
   }

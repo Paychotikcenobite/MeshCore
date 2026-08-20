@@ -136,8 +136,23 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
   }
 
   if (action == 2) {
+    bool can_stop = m.outgoing && m.send_state == SEND_SENDING && _active_kind == ROW_CONTACT;
     bool can_retry = m.outgoing && m.send_state == SEND_FAILED &&
                      (_active_kind == ROW_CONTACT || _active_kind == ROW_CHANNEL);
+
+    if (can_stop) {
+      // A send has already crossed into MeshCore. We can stop local ACK
+      // tracking, but we cannot retract a packet that may already be on-air.
+      if (m.delivery_ack) the_mesh.releaseCompactAck(m.delivery_ack);
+      m.delivery_ack = 0;
+      m.delivery_deadline_ms = 0;
+      m.send_state = SEND_STOPPED;
+      persistenceCheckpoint(true);
+      closeModal();
+      _task->showAlert("Stopped waiting - packet already sent", 1300);
+      return true;
+    }
+
     if (!can_retry) {
       _task->showAlert("Retry is only for failed sends", 1000);
       return true;
@@ -291,7 +306,7 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
     d.setColor(text);
     d.drawTextEllipsized(38, 76, 244, m.text);
 
-    char status[80];
+    char status[88];
     if (!m.outgoing) {
       strcpy(status, "Received by this T-Deck");
     } else if (_active_kind == ROW_CHANNEL) {
@@ -301,6 +316,7 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
     } else {
       if (m.send_state == SEND_CONFIRMED) strcpy(status, "Confirmed: MeshCore ACK received");
       else if (m.send_state == SEND_SENDING) strcpy(status, "Sending: awaiting MeshCore ACK");
+      else if (m.send_state == SEND_STOPPED) strcpy(status, "Stopped locally; RF packet was already sent");
       else if (m.send_state == SEND_FAILED) strcpy(status, "Failed: no ACK or queue failure");
       else if (m.send_state == SEND_SENT) strcpy(status, "Sent: no retained peer-ACK proof");
       else strcpy(status, "Queued / local state only");
@@ -344,12 +360,13 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
   d.setColor(sub);
   d.drawTextEllipsized(38, 72, 244, m.text);
 
+  bool can_stop = m.outgoing && m.send_state == SEND_SENDING && _active_kind == ROW_CONTACT;
   bool can_retry = m.outgoing && m.send_state == SEND_FAILED &&
                    (_active_kind == ROW_CONTACT || _active_kind == ROW_CHANNEL);
   const char* labels[5] = {
     m.outgoing ? "Delivery details" : "Reception details",
     "Reply (local reference)",
-    "Retry failed send",
+    can_stop ? "Stop waiting (local)" : "Retry failed send",
     "Delete locally",
     "Close"
   };
@@ -357,7 +374,7 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
   const int hs[5] = {25,25,25,25,26};
 
   for (int i = 0; i < 5; ++i) {
-    bool enabled = i != 2 || can_retry;
+    bool enabled = i != 2 || can_retry || can_stop;
     d.setColor(i == g_message_action.selected ? accent : row);
     d.fillRoundRect(35, ys[i], 250, hs[i], 5);
     d.setColor(stroke);
