@@ -1,5 +1,6 @@
 #include "UITask.h"
 #include <Wire.h>
+#include <TouchDrvGT911.hpp>
 #include <helpers/TxtDataHelpers.h>
 #include "../MyMesh.h"
 #include "target.h"
@@ -49,6 +50,10 @@ static const uint8_t TOUCH_SWIPE_UP = 1;
 static const uint8_t TOUCH_SWIPE_DOWN = 2;
 static const uint8_t TOUCH_SWIPE_LEFT = 3;
 static const uint8_t TOUCH_SWIPE_RIGHT = 4;
+
+// Use the exact GT911 driver family used by LilyGO's T-Deck example and
+// bmorcelli Launcher instead of hand-rolling the register protocol.
+static TouchDrvGT911 tdeck_touch;
 
 static int batteryPercent(uint16_t mv) {
   int pct = ((int)mv - 3300) * 100 / 900;
@@ -484,7 +489,7 @@ private:
 
     d.setColor(MCC_CARD); d.fillRoundRect(x, 168, w, 36, 6); d.setColor(MCC_TEXT); d.setCursor(22, 178); d.print("Firmware"); d.setColor(MCC_SUB); d.drawTextRightAlign(298, 186, FIRMWARE_VERSION);
 
-    d.setColor(MCC_CARD); d.fillRoundRect(x, 210, w, 26, 6); d.setColor(MCC_SUB); d.setCursor(22, 219); d.print("Input"); d.setColor(MCC_TEXT); d.drawTextRightAlign(298, 219, _task->touchReady() ? "Touch + keyboard" : "Keyboard + trackball");
+    d.setColor(MCC_CARD); d.fillRoundRect(x, 210, w, 26, 6); d.setColor(MCC_SUB); d.setCursor(22, 219); d.print("Input"); d.setColor(_task->touchReady() ? MCC_GREEN : MCC_DANGER); d.drawTextRightAlign(298, 219, _task->touchReady() ? "GT911 ready" : "GT911 FAILED");
   }
 
   void drawRadio(DisplayDriver& d) {
@@ -711,6 +716,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs
   if (_display) _display->turnOn();
   initTouch();
   home = new CommunicatorScreen(this, &rtc_clock); curr = home; _next_refresh = 0;
+  showAlert(_touch_ready ? "GT911 touch ready" : "GT911 TOUCH FAILED", _touch_ready ? 1200 : 3000);
 }
 
 void UITask::setCurrScreen(UIScreen* c) { curr = c; _next_refresh = 0; }
@@ -730,57 +736,54 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
 
 void UITask::notify(UIEventType t) { (void)t; }
 
-bool UITask::gtRead(uint16_t reg, uint8_t* dest, size_t len) {
-  if (!_touch_addr || !dest || !len) return false;
-  Wire.beginTransmission(_touch_addr); Wire.write((uint8_t)(reg >> 8)); Wire.write((uint8_t)(reg & 0xFF));
-  if (Wire.endTransmission(false) != 0) return false;
-  size_t got = Wire.requestFrom((uint8_t)_touch_addr, (uint8_t)len);
-  if (got < len) { while (Wire.available()) Wire.read(); return false; }
-  for (size_t i = 0; i < len; ++i) dest[i] = (uint8_t)Wire.read();
+bool UITask::initTouch() {
+  // Match the proven standard T-Deck path used by LilyGO and Launcher:
+  // shared I2C bus on SDA18/SCL8, no GT911 reset pin, INT on GPIO16.
+  pinMode(TDECK_TOUCH_INT, INPUT);
+  tdeck_touch.setPins(-1, TDECK_TOUCH_INT);
+  _touch_ready = tdeck_touch.begin(Wire, GT911_SLAVE_ADDRESS_L, 18, 8);
+  if (!_touch_ready) {
+    Serial.println("[compact-touch] GT911 init FAILED");
+    _touch_down = false;
+    return false;
+  }
+
+  // Our ST7789 is rotation 3. Launcher uses this exact transform for a
+  // standard (non-Plus) T-Deck at rotation 3: swap XY, no mirroring.
+  tdeck_touch.setMaxCoordinates(320, 240);
+  tdeck_touch.setSwapXY(true);
+  tdeck_touch.setMirrorXY(false, false);
+  _touch_down = false;
+  Serial.printf("[compact-touch] GT911 ready id=%lu fw=0x%04X\n",
+                (unsigned long)tdeck_touch.getChipID(), tdeck_touch.getFwVersion());
   return true;
 }
 
-bool UITask::gtWriteByte(uint16_t reg, uint8_t value) {
-  if (!_touch_addr) return false;
-  Wire.beginTransmission(_touch_addr); Wire.write((uint8_t)(reg >> 8)); Wire.write((uint8_t)(reg & 0xFF)); Wire.write(value);
-  return Wire.endTransmission() == 0;
-}
-
-bool UITask::initTouch() {
-  const uint8_t candidates[2] = {0x5D, 0x14};
-  uint8_t id[4];
-  for (int i = 0; i < 2; ++i) {
-    _touch_addr = candidates[i];
-    if (gtRead(0x8140, id, sizeof(id))) { _touch_down = false; return true; }
-  }
-  _touch_addr = 0; return false;
-}
-
 bool UITask::pollTouch(int16_t& x, int16_t& y, uint8_t& gesture) {
-  if (!_touch_addr || millis() < _touch_poll_at) return false;
+  if (!_touch_ready || millis() < _touch_poll_at) return false;
   _touch_poll_at = millis() + 12;
-  uint8_t status = 0;
-  if (!gtRead(0x814E, &status, 1)) return false;
-  bool ready = (status & 0x80) != 0;
-  uint8_t count = status & 0x0F;
-  if (ready && count > 0) {
-    uint8_t p[8];
-    if (gtRead(0x814F, p, sizeof(p))) {
-      int16_t rawX = (int16_t)(p[1] | (p[2] << 8));
-      int16_t rawY = (int16_t)(p[3] | (p[4] << 8));
-      // Match LILYGO's official T-Deck GT911 transform: swap XY, then mirror Y.
-      _touch_x = rawY; _touch_y = 239 - rawX;
-      if (_touch_x < 0) _touch_x = 0; if (_touch_x > 319) _touch_x = 319;
-      if (_touch_y < 0) _touch_y = 0; if (_touch_y > 239) _touch_y = 239;
-      if (!_touch_down) { _touch_start_x = _touch_x; _touch_start_y = _touch_y; _touch_down = true; }
-      _touch_last_seen = millis();
+
+  int16_t px = 0, py = 0;
+  uint8_t touched = tdeck_touch.getPoint(&px, &py, 1);
+  if (touched > 0) {
+    _touch_x = px;
+    _touch_y = py;
+    if (_touch_x < 0) _touch_x = 0; if (_touch_x > 319) _touch_x = 319;
+    if (_touch_y < 0) _touch_y = 0; if (_touch_y > 239) _touch_y = 239;
+    if (!_touch_down) {
+      _touch_start_x = _touch_x;
+      _touch_start_y = _touch_y;
+      _touch_down = true;
     }
-    gtWriteByte(0x814E, 0);
+    _touch_last_seen = millis();
     return false;
   }
-  if (ready) gtWriteByte(0x814E, 0);
-  if (_touch_down && (ready || millis() - _touch_last_seen > 120)) {
-    _touch_down = false; x = _touch_x; y = _touch_y;
+
+  // GT911 reports samples while held, but no separate release packet. Treat a
+  // short gap after the final sample as release and classify the gesture.
+  if (_touch_down && millis() - _touch_last_seen > 70) {
+    _touch_down = false;
+    x = _touch_x; y = _touch_y;
     int dx = _touch_x - _touch_start_x, dy = _touch_y - _touch_start_y;
     if (abs(dx) < 28 && abs(dy) < 28) gesture = TOUCH_TAP;
     else if (abs(dy) >= abs(dx)) gesture = dy < 0 ? TOUCH_SWIPE_UP : TOUCH_SWIPE_DOWN;
