@@ -64,6 +64,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs
 
   home = new CommunicatorAppScreen(this, &rtc_clock);
   curr = home;
+  ((CommunicatorAppScreen*)home)->persistenceBegin();
   _next_refresh = 0;
   showAlert(_touch_ready ? "GT911 touch ready" : "GT911 TOUCH FAILED", _touch_ready ? 900 : 3000);
 }
@@ -81,14 +82,21 @@ void UITask::showAlert(const char* text, int duration_millis) {
 
 void UITask::msgRead(int msgcount) {
   _msgcount = msgcount;
-  if (msgcount == 0 && home) ((CommunicatorAppScreen*)home)->clearUnread();
+  if (msgcount == 0 && home) {
+    CommunicatorAppScreen* app = (CommunicatorAppScreen*)home;
+    app->clearUnread();
+    app->persistenceCheckpoint(true);
+  }
   _next_refresh = 0;
 }
 
 void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) {
   _msgcount = msgcount;
   CommunicatorAppScreen* app = home ? (CommunicatorAppScreen*)home : nullptr;
-  if (app) app->addMessage(path_len, from_name, text);
+  if (app) {
+    app->addMessage(path_len, from_name, text);
+    app->persistenceCheckpoint(true);
+  }
   bool wake = !app || app->shouldWakeForMessage(from_name);
   if (_display && wake) {
     if (!_display->isOn()) _display->turnOn();
@@ -248,9 +256,11 @@ char UITask::pollInput() {
 }
 
 void UITask::loop() {
+  CommunicatorAppScreen* app = home ? (CommunicatorAppScreen*)home : nullptr;
+
   if (_alert_expiry && millis() >= _alert_expiry) {
     _alert_expiry = 0;
-    if (home) ((CommunicatorAppScreen*)home)->markAllDirty();
+    if (app) app->markAllDirty();
     _next_refresh = 0;
   }
 
@@ -259,9 +269,27 @@ void UITask::loop() {
   if (pollTouch(tx, ty, gesture)) {
     if (_display && !_display->isOn()) {
       _display->turnOn();
-      if (home) ((CommunicatorAppScreen*)home)->markAllDirty();
-    } else if (home) {
-      ((CommunicatorAppScreen*)home)->handleTouch(tx, ty, gesture);
+      if (app) app->markAllDirty();
+    } else if (app) {
+      // Checkpoint drafts/state before any navigation event can change route.
+      app->persistenceCheckpoint(true);
+
+      bool handled = false;
+      if (gesture == COMPACT_TOUCH_TAP && ty <= 42) {
+        if (tx >= 277) { app->openSettingsSingleTop(); handled = true; }
+        else if (tx >= 234) { app->openRadioSingleTop(); handled = true; }
+      }
+      // Universal daughter-screen back hitbox. This fixes New conversation and
+      // also prevents individual route handlers from drifting apart.
+      if (!handled && gesture == COMPACT_TOUCH_TAP && tx < 42 && ty >= 44 && ty <= 78) {
+        app->navigateBack();
+        handled = true;
+      }
+      // Piece 3 owns the Data & backup description now that history/drafts are
+      // actually durable; do not let the old placeholder text claim otherwise.
+      if (!handled) handled = app->handlePersistentDataTouch(tx, ty, gesture);
+      if (!handled) app->handleTouch(tx, ty, gesture);
+      app->persistenceCheckpoint(false);
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;
     _next_refresh = 0;
@@ -269,15 +297,21 @@ void UITask::loop() {
 
   char c = pollInput();
   if (c && curr) {
+    if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
     curr->handleInput(c);
+    if (app) app->persistenceCheckpoint(false);
     _next_refresh = 0;
   }
   if (curr) curr->poll();
+  if (app) app->persistenceCheckpoint(false);
 
   if (_display && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
       _display->startFrame();
       int delay_ms = curr->render(*_display);
+      // Overlay the improved Wi-Fi/settings glyphs after every full/partial
+      // screen render so the persistent header remains visually consistent.
+      if (app) app->redrawHeaderActionIcons(*_display);
       if (_alert_expiry) {
         const int x = 38, y = 95, w = 244, h = 46;
         _display->setColor(ALERT_BG);
@@ -294,7 +328,10 @@ void UITask::loop() {
       _display->endFrame();
     }
 #if AUTO_OFF_MILLIS > 0
-    if (millis() > _auto_off) _display->turnOff();
+    if (millis() > _auto_off) {
+      if (app) app->persistenceCheckpoint(true);
+      _display->turnOff();
+    }
 #endif
   }
 }
