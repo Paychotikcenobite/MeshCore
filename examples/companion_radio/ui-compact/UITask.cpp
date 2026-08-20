@@ -285,8 +285,10 @@ void UITask::loop() {
       } else if (app->contactAddActive()) {
         handled = app->handleContactAddTouch(tx, ty, gesture);
       } else {
+        // A pending local reply chip is itself tappable to cancel.
+        handled = app->handleReplyTouch(tx, ty, gesture);
         // Replace the old Piece-4 placeholder long-press with the real modal.
-        handled = app->tryOpenMessageActions(tx, ty, gesture);
+        if (!handled) handled = app->tryOpenMessageActions(tx, ty, gesture);
         // Intercept Add contact before the older New Conversation placeholder.
         if (!handled) handled = app->tryBeginContactAdd(tx, ty, gesture);
         if (!handled && gesture == COMPACT_TOUCH_TAP && ty <= 42) {
@@ -301,7 +303,9 @@ void UITask::loop() {
         if (!handled) app->handleTouch(tx, ty, gesture);
       }
       app->reconcileDirectSendState();
-      app->persistenceCheckpoint(false);
+      // If the touch just sent a reply, force the new message ID/reply_to link
+      // immediately so a fast second send cannot steal the pending reference.
+      app->persistenceCheckpoint(app->replyPending());
     }
     _auto_off = millis() + AUTO_OFF_MILLIS;
     _next_refresh = 0;
@@ -310,12 +314,20 @@ void UITask::loop() {
   char c = pollInput();
   if (c && curr) {
     if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
-    if (app && app->messageActionActive()) app->handleMessageActionInput(c);
-    else if (app && app->contactAddActive()) app->handleContactAddInput(c);
-    else curr->handleInput(c);
+    if (app && app->messageActionActive()) {
+      app->handleMessageActionInput(c);
+    } else if (app && app->contactAddActive()) {
+      app->handleContactAddInput(c);
+    } else if (app && app->replyPending() && c == KEY_CANCEL) {
+      app->clearPendingReply();
+      showAlert("Reply reference cancelled", 800);
+    } else {
+      curr->handleInput(c);
+    }
     if (app) {
       app->reconcileDirectSendState();
-      app->persistenceCheckpoint(false);
+      bool force_reply_bind = c == KEY_ENTER && app->replyPending();
+      app->persistenceCheckpoint(force_reply_bind);
     }
     _next_refresh = 0;
   }
@@ -334,6 +346,7 @@ void UITask::loop() {
       _display->startFrame();
       int delay_ms = curr->render(*_display);
       if (app) app->drawDirectSendOverlay(*_display);
+      if (app) app->drawReplyComposerOverlay(*_display);
       if (app && app->messageActionActive()) app->drawMessageActionOverlay(*_display);
       if (app && app->contactAddActive()) {
         app->drawContactAddOverlay(*_display);

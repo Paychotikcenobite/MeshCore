@@ -65,6 +65,17 @@ public:
   bool handleMessageActionInput(char c);
   void drawMessageActionOverlay(DisplayDriver& display);
 
+  // MeshCore plain/group text has no protocol-level reply field. Reply is kept
+  // as durable local metadata keyed by the existing stable history IDs and is
+  // labeled local in the UI rather than silently inventing an RF extension.
+  bool beginReplyToMessage(int slot);
+  void clearPendingReply();
+  bool replyPending() const;
+  bool handleReplyTouch(int16_t x, int16_t y, uint8_t gesture);
+  void drawReplyComposerOverlay(DisplayDriver& display);
+  uint64_t replyTargetForMessage(int slot) const;
+  bool getReplyTargetPreview(int slot, char* out, size_t len) const;
+
 private:
   enum Route : uint8_t {
     ROUTE_MAIN = 0,

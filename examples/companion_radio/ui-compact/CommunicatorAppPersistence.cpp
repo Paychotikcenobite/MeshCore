@@ -86,9 +86,17 @@ struct PersistenceState {
   bool active_draft_valid = false;
   uint8_t active_draft_kind = 0;
   uint8_t active_draft_key[32] = {0};
+  // Reply is a local UI relationship. The target is an existing stable history
+  // ID; no bytes are added to MeshCore's plain/group text RF payload.
+  uint64_t pending_reply_to = 0;
+  char pending_reply_preview[56] = {0};
 };
 
 PersistenceState g;
+
+constexpr ColorVal replyRgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return (ColorVal)(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
+}
 
 uint32_t crc32(const uint8_t* data, size_t len) {
   uint32_t crc = 0xFFFFFFFFu;
@@ -287,11 +295,87 @@ void CommunicatorAppScreen::openRadioSingleTop() {
 }
 
 void CommunicatorAppScreen::navigateBack() {
+  clearPendingReply();
   if (_route == ROUTE_MAIN) { _dirty = DIRTY_ALL; return; }
   goBack();
 }
 
-void CommunicatorAppScreen::navigateHome() { goHome(); }
+void CommunicatorAppScreen::navigateHome() {
+  clearPendingReply();
+  goHome();
+}
+
+bool CommunicatorAppScreen::beginReplyToMessage(int slot) {
+  if (slot < 0 || slot >= kCacheSlots) return false;
+  if (!_messages[slot].origin[0] && !_messages[slot].text[0]) return false;
+
+  // Ensure the target already has its durable ID before the compose relationship
+  // is staged. This does not transmit anything over LoRa.
+  persistenceCheckpoint(true);
+  if (!g.ids[slot]) return false;
+
+  g.pending_reply_to = g.ids[slot];
+  StrHelper::strncpy(g.pending_reply_preview, _messages[slot].text, sizeof(g.pending_reply_preview));
+  _dirty = DIRTY_ALL;
+  return true;
+}
+
+void CommunicatorAppScreen::clearPendingReply() {
+  g.pending_reply_to = 0;
+  g.pending_reply_preview[0] = 0;
+  _dirty = DIRTY_ALL;
+}
+
+bool CommunicatorAppScreen::replyPending() const {
+  return g.pending_reply_to != 0;
+}
+
+bool CommunicatorAppScreen::handleReplyTouch(int16_t x, int16_t y, uint8_t gesture) {
+  (void)x;
+  if (!replyPending() || _route != ROUTE_CHAT || gesture != COMPACT_TOUCH_TAP) return false;
+  if (y >= 180 && y < 202) {
+    clearPendingReply();
+    _task->showAlert("Reply reference cancelled", 800);
+    return true;
+  }
+  return false;
+}
+
+void CommunicatorAppScreen::drawReplyComposerOverlay(DisplayDriver& d) {
+  if (!replyPending() || _route != ROUTE_CHAT) return;
+  const ColorVal bg = _light_mode ? replyRgb565(232,240,249) : replyRgb565(24,49,78);
+  const ColorVal stroke = _light_mode ? replyRgb565(150,180,211) : replyRgb565(61,101,142);
+  const ColorVal text = _light_mode ? replyRgb565(28,54,83) : replyRgb565(226,238,250);
+  d.setColor(bg);
+  d.fillRoundRect(6, 181, 308, 19, 5);
+  d.setColor(stroke);
+  d.drawRoundRect(6, 181, 308, 19, 5);
+  d.setTextSize(1);
+  d.setColor(text);
+  char line[76];
+  snprintf(line, sizeof(line), "Reply (local): %.44s  [tap to cancel]", g.pending_reply_preview);
+  d.drawTextEllipsized(13, 187, 294, line);
+}
+
+uint64_t CommunicatorAppScreen::replyTargetForMessage(int slot) const {
+  if (slot < 0 || slot >= kCacheSlots) return 0;
+  return g.reply_to[slot];
+}
+
+bool CommunicatorAppScreen::getReplyTargetPreview(int slot, char* out, size_t len) const {
+  if (!out || !len) return false;
+  out[0] = 0;
+  uint64_t target = replyTargetForMessage(slot);
+  if (!target) return false;
+  for (int i = 0; i < kCacheSlots; ++i) {
+    if (g.ids[i] == target && (_messages[i].origin[0] || _messages[i].text[0])) {
+      StrHelper::strncpy(out, _messages[i].text, len);
+      return true;
+    }
+  }
+  StrHelper::strncpy(out, "Original message unavailable", len);
+  return true;
+}
 
 void CommunicatorAppScreen::redrawHeaderActionIcons(DisplayDriver& d) {
   const ColorVal card = _light_mode ? (ColorVal)0xFFFF : (ColorVal)0x08E6;
@@ -448,6 +532,21 @@ void CommunicatorAppScreen::persistenceCheckpoint(bool force) {
     kind = 3; fallbackKey(m.origin, key);
   };
 
+  // If a reply reference is pending, attach it to the newest newly-created
+  // outgoing message in the active conversation. beginReplyToMessage() forced
+  // all pre-existing messages to have IDs, so this cannot bind to an older one.
+  int pending_reply_slot = -1;
+  if (g.pending_reply_to && _route == ROUTE_CHAT) {
+    for (int n = 0; n < _message_count; ++n) {
+      int i = (_message_head + kCacheSlots - n) % kCacheSlots;
+      MessageEntry& m = _messages[i];
+      if (!m.outgoing || !m.origin[0] || strcmp(m.origin, _active_name) != 0) continue;
+      uint32_t content = messageContentHash(m.timestamp, m.outgoing, m.origin, m.text);
+      bool new_content = g.ids[i] == 0 || (g.content_hash[i] != 0 && content != g.content_hash[i]);
+      if (new_content) { pending_reply_slot = i; break; }
+    }
+  }
+
   auto appendSlot = [&](int i, bool deleted) -> bool {
     HistoryRecord r{};
     r.id = g.ids[i];
@@ -490,7 +589,12 @@ void CommunicatorAppScreen::persistenceCheckpoint(bool force) {
     if (g.ids[i] == 0) {
       g.ids[i] = g.next_id++;
       resolveIdentity(m, g.conv_kind[i], g.conv_key[i]);
-      g.reply_to[i] = 0; // reserved now; Piece 4 will wire reply actions to this stable ID.
+      g.reply_to[i] = (i == pending_reply_slot) ? g.pending_reply_to : 0;
+      if (i == pending_reply_slot) {
+        g.pending_reply_to = 0;
+        g.pending_reply_preview[0] = 0;
+        pending_reply_slot = -1;
+      }
     } else if (g.conv_kind[i] == 0) {
       resolveIdentity(m, g.conv_kind[i], g.conv_key[i]);
     }

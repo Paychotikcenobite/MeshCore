@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCREEN_H="$ROOT/examples/companion_radio/ui-compact/CommunicatorAppScreen.h"
 DELIVERY_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorDelivery.cpp"
 ACTIONS_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorMessageActions.cpp"
+PERSIST_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
 MESH_H="$ROOT/examples/companion_radio/MyMesh.h"
 MESH_DELIVERY_CPP="$ROOT/examples/companion_radio/ui-compact/MyMeshCompactDelivery.cpp"
 UI_TASK_CPP="$ROOT/examples/companion_radio/ui-compact/UITask.cpp"
@@ -41,6 +42,8 @@ require "reconcileDirectSendState" "$UI_TASK_CPP" "UI loop must reconcile send l
 require "drawDirectSendOverlay" "$UI_TASK_CPP" "UI frame must render pending/confirmed direct-send overlay"
 
 require "tryOpenMessageActions" "$ACTIONS_CPP" "message long-press must open a real action modal"
+require "Reply (local reference)" "$ACTIONS_CPP" "message actions must expose truthfully labeled local Reply"
+require "beginReplyToMessage" "$ACTIONS_CPP" "Reply action must bind to persistent history metadata"
 require "Retry failed send" "$ACTIONS_CPP" "failed sends must expose Retry"
 require "attempt=4" "$ACTIONS_CPP" "direct retry must use MeshCore retry packet form"
 require "takeCompactSendStart" "$ACTIONS_CPP" "retry must bind the newly registered ACK to the same message"
@@ -49,8 +52,21 @@ require "Message deleted locally" "$ACTIONS_CPP" "per-message delete must be loc
 require "Confirmed: MeshCore ACK received" "$ACTIONS_CPP" "delivery details must expose real ACK evidence"
 require "Sent: no retained peer-ACK proof" "$ACTIONS_CPP" "legacy Sent must not be relabeled Confirmed"
 require "no per-peer group ACK exists" "$ACTIONS_CPP" "group details must not claim peer delivery"
+require "Local reply to:" "$ACTIONS_CPP" "message details must surface persisted local reply relationship"
 require "messageActionActive" "$UI_TASK_CPP" "message action modal must intercept touch/keyboard before chat"
 require "drawMessageActionOverlay" "$UI_TASK_CPP" "message action modal must render after chat"
+
+require "uint64_t reply_to" "$PERSIST_CPP" "history schema must retain stable reply target IDs"
+require "pending_reply_to" "$PERSIST_CPP" "composer must stage a local reply target"
+require "beginReplyToMessage" "$PERSIST_CPP" "reply target must be created only after target has a stable ID"
+require "persistenceCheckpoint(true)" "$PERSIST_CPP" "reply target ID must be durable before it is referenced"
+require "g.reply_to[i] = (i == pending_reply_slot) ? g.pending_reply_to : 0" "$PERSIST_CPP" "new outgoing message must persist the stable reply_to relationship"
+require "messagePersistHash" "$PERSIST_CPP" "reply_to changes must participate in persistence hashing"
+require "no bytes are added to MeshCore's plain/group text RF payload" "$PERSIST_CPP" "local Reply must not invent an incompatible RF envelope"
+require "Reply (local):" "$PERSIST_CPP" "composer must label reply scope accurately"
+require "drawReplyComposerOverlay" "$UI_TASK_CPP" "pending Reply must be visible in the composer"
+require "handleReplyTouch" "$UI_TASK_CPP" "touch must allow cancelling a pending Reply"
+require "replyPending() && c == KEY_CANCEL" "$UI_TASK_CPP" "keyboard Esc must cancel Reply before leaving chat"
 
 if grep -Fq "MESHCORE_COMPACT_UI" "$ROOT/variants/lilygo_tdeck/platformio.ini"; then
   :

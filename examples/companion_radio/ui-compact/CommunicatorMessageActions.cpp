@@ -111,10 +111,11 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
   }
 
   int action = -1;
-  if (y >= 91 && y < 120) action = 0;
-  else if (y >= 122 && y < 151) action = 1;
-  else if (y >= 153 && y < 182) action = 2;
-  else if (y >= 184 && y < 218) action = 3;
+  if (y >= 88 && y < 113) action = 0;
+  else if (y >= 115 && y < 140) action = 1;
+  else if (y >= 142 && y < 167) action = 2;
+  else if (y >= 169 && y < 194) action = 3;
+  else if (y >= 196 && y < 222) action = 4;
   if (action < 0) return true;
   g_message_action.selected = (uint8_t)action;
 
@@ -125,6 +126,16 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
   }
 
   if (action == 1) {
+    if (!beginReplyToMessage(g_message_action.slot)) {
+      _task->showAlert("Could not create reply reference", 1100);
+      return true;
+    }
+    closeModal();
+    _task->showAlert("Local reply reference set", 900);
+    return true;
+  }
+
+  if (action == 2) {
     bool can_retry = m.outgoing && m.send_state == SEND_FAILED &&
                      (_active_kind == ROW_CONTACT || _active_kind == ROW_CHANNEL);
     if (!can_retry) {
@@ -183,7 +194,7 @@ bool CommunicatorAppScreen::handleMessageActionTouch(int16_t x, int16_t y, uint8
     return true;
   }
 
-  if (action == 2) {
+  if (action == 3) {
     g_message_action.page = 2;
     _dirty = DIRTY_ALL;
     return true;
@@ -215,12 +226,12 @@ bool CommunicatorAppScreen::handleMessageActionInput(char c) {
       return true;
     }
     if (c == KEY_DOWN) {
-      if (g_message_action.selected < 3) ++g_message_action.selected;
+      if (g_message_action.selected < 4) ++g_message_action.selected;
       _dirty = DIRTY_ALL;
       return true;
     }
     if (c == KEY_ENTER) {
-      static const int ys[4] = {105, 136, 167, 201};
+      static const int ys[5] = {100, 127, 154, 181, 208};
       return handleMessageActionTouch(160, ys[g_message_action.selected], COMPACT_TOUCH_TAP);
     }
     return true;
@@ -278,7 +289,7 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
   if (g_message_action.page == 1) {
     d.drawTextCentered(160, 60, m.outgoing ? "Delivery details" : "Reception details");
     d.setColor(text);
-    d.drawTextEllipsized(38, 79, 244, m.text);
+    d.drawTextEllipsized(38, 76, 244, m.text);
 
     char status[80];
     if (!m.outgoing) {
@@ -295,7 +306,7 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
       else strcpy(status, "Queued / local state only");
     }
     d.setColor(sub);
-    drawWrapped(d, 38, 101, 244, 2, status);
+    drawWrapped(d, 38, 96, 244, 2, status);
 
     char route[80];
     if (!m.outgoing) {
@@ -308,39 +319,50 @@ void CommunicatorAppScreen::drawMessageActionOverlay(DisplayDriver& d) {
     } else {
       snprintf(route, sizeof(route), "Send route: directed, %u hop%s", m.path_len, m.path_len == 1 ? "" : "s");
     }
-    drawWrapped(d, 38, 132, 244, 2, route);
+    drawWrapped(d, 38, 124, 244, 2, route);
+
+    char reply[80];
+    if (replyTargetForMessage(g_message_action.slot)) {
+      char preview[52];
+      getReplyTargetPreview(g_message_action.slot, preview, sizeof(preview));
+      snprintf(reply, sizeof(reply), "Local reply to: %.48s", preview);
+    } else {
+      strcpy(reply, "Local reply reference: none");
+    }
+    d.drawTextEllipsized(38, 154, 244, reply);
 
     char stamp[48];
     snprintf(stamp, sizeof(stamp), "Message timestamp: %lu", (unsigned long)m.timestamp);
-    d.drawTextEllipsized(38, 163, 244, stamp);
-    d.setColor(row); d.fillRoundRect(78,196,164,25,6);
-    d.setColor(stroke); d.drawRoundRect(78,196,164,25,6);
-    d.setColor(text); d.drawTextCentered(160,204,"Back");
+    d.drawTextEllipsized(38, 171, 244, stamp);
+    d.setColor(row); d.fillRoundRect(78,198,164,23,6);
+    d.setColor(stroke); d.drawRoundRect(78,198,164,23,6);
+    d.setColor(text); d.drawTextCentered(160,205,"Back");
     return;
   }
 
-  d.drawTextCentered(160, 58, "Message actions");
+  d.drawTextCentered(160, 56, "Message actions");
   d.setColor(sub);
-  d.drawTextEllipsized(38, 75, 244, m.text);
+  d.drawTextEllipsized(38, 72, 244, m.text);
 
   bool can_retry = m.outgoing && m.send_state == SEND_FAILED &&
                    (_active_kind == ROW_CONTACT || _active_kind == ROW_CHANNEL);
-  const char* labels[4] = {
+  const char* labels[5] = {
     m.outgoing ? "Delivery details" : "Reception details",
+    "Reply (local reference)",
     "Retry failed send",
     "Delete locally",
     "Close"
   };
-  const int ys[4] = {91,122,153,184};
-  const int hs[4] = {29,29,29,34};
+  const int ys[5] = {88,115,142,169,196};
+  const int hs[5] = {25,25,25,25,26};
 
-  for (int i = 0; i < 4; ++i) {
-    bool enabled = i != 1 || can_retry;
+  for (int i = 0; i < 5; ++i) {
+    bool enabled = i != 2 || can_retry;
     d.setColor(i == g_message_action.selected ? accent : row);
     d.fillRoundRect(35, ys[i], 250, hs[i], 5);
     d.setColor(stroke);
     d.drawRoundRect(35, ys[i], 250, hs[i], 5);
-    d.setColor(!enabled ? sub : (i == 2 ? danger : text));
+    d.setColor(!enabled ? sub : (i == 3 ? danger : text));
     d.drawTextCentered(160, ys[i] + hs[i]/2 - 4, labels[i]);
   }
 }
