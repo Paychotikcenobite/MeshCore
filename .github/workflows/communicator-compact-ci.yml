@@ -19,6 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Check Communicator Compact Piece 1 and 2 contract
+        run: /usr/bin/env bash tests/CommunicatorCompactUiChecks.sh
+
       - name: Setup MeshCore build environment
         uses: ./.github/actions/setup-build-environment
 
