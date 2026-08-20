@@ -31,7 +31,7 @@ jobs:
 
       - name: Build Communicator Compact target
         env:
-          FIRMWARE_VERSION: compact-v10-nav-piece3
+          FIRMWARE_VERSION: compact-v11-contacts-fluent-ui
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
       - name: Record compact firmware identity
