@@ -79,12 +79,20 @@ class CompactTDeckGT911 : public TouchDrvGT911 {
     return id[0] == '9' && id[1] == '1' && id[2] == '1';
   }
 
+  bool rawIsPressed() {
+    if (!_compact_wire) return false;
+    uint8_t status = 0;
+    if (!readRegs(*_compact_wire, _compact_addr, 0x814E, &status, 1)) return false;
+    const uint8_t count = status & 0x0F;
+    return (status & 0x80) && count > 0 && count <= 5;
+  }
+
   uint8_t rawGetPoint(int16_t* x_array, int16_t* y_array, uint8_t size) {
     if (!_compact_wire || !x_array || !y_array || size == 0) return 0;
     uint8_t status = 0;
     if (!readRegs(*_compact_wire, _compact_addr, 0x814E, &status, 1)) return 0;
     uint8_t count = status & 0x0F;
-    if (count == 0 || count > 5) {
+    if (!(status & 0x80) || count == 0 || count > 5) {
       if (count > 5) (void)writeReg8(*_compact_wire, _compact_addr, 0x814E, 0x00);
       return 0;
     }
@@ -99,8 +107,8 @@ class CompactTDeckGT911 : public TouchDrvGT911 {
     int16_t x = (int16_t)((uint16_t)point[1] | ((uint16_t)point[2] << 8));
     int16_t y = (int16_t)((uint16_t)point[3] | ((uint16_t)point[4] << 8));
     if (_compact_swap_xy) { int16_t t = x; x = y; y = t; }
-    if (_compact_mirror_x && _compact_max_x) x = (int16_t)_compact_max_x - x;
-    if (_compact_mirror_y && _compact_max_y) y = (int16_t)_compact_max_y - y;
+    if (_compact_mirror_x && _compact_max_x) x = (int16_t)(_compact_max_x - 1) - x;
+    if (_compact_mirror_y && _compact_max_y) y = (int16_t)(_compact_max_y - 1) - y;
     x_array[0] = x;
     y_array[0] = y;
     return 1;
@@ -157,7 +165,17 @@ public:
     return false;
   }
 
+  bool isPressed() {
+    return _compact_raw_fallback ? rawIsPressed() : TouchDrvGT911::isPressed();
+  }
+
   uint8_t getPoint(int16_t* x_array, int16_t* y_array, uint8_t size = 1) {
+    // This is the important behavioral difference from v7. LilyGO's own
+    // T-Deck example gates getPoint() behind isPressed(). The old Compact loop
+    // called getPoint() continuously; SensorLib clears the GT911 data-ready
+    // buffer on every getPoint(), so polling it while idle erased most touches
+    // before the UI could consume them.
+    if (!isPressed()) return 0;
     return _compact_raw_fallback ? rawGetPoint(x_array, y_array, size)
                                  : TouchDrvGT911::getPoint(x_array, y_array, size);
   }
@@ -174,8 +192,13 @@ public:
     TouchDrvGT911::setSwapXY(swap);
   }
   void setMirrorXY(bool mirrorX, bool mirrorY) {
-    _compact_mirror_x = mirrorX; _compact_mirror_y = mirrorY;
-    TouchDrvGT911::setMirrorXY(mirrorX, mirrorY);
+    // The standard T-Deck example uses swapXY=true and mirrorY=true. The
+    // previous Compact build passed false,false; keep the public call site
+    // isolated and force the proven standard-T-Deck Y transform here.
+    (void)mirrorY;
+    _compact_mirror_x = mirrorX;
+    _compact_mirror_y = true;
+    TouchDrvGT911::setMirrorXY(mirrorX, true);
   }
 };
 
