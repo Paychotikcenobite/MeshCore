@@ -108,7 +108,8 @@ require "$PERSIST" 'kCompactAtBytes' 'journal growth must be bounded by compacti
 require "$PERSIST" 'replaceAtomically' 'compaction/draft snapshots must use replacement recovery semantics'
 require "$PERSIST" 'Drafts are keyed by the same stable contact/channel identity' 'drafts must survive reboot without being keyed by mutable names'
 require "$PERSIST" 'r.send_state = _messages[i].send_state' 'send metadata must persist'
-require "$PERSIST" 'm.unread = (r.flags & 0x02) ? 1 : 0;' 'unread state must restore from persistent history'
+require "$PERSIST" 'constexpr uint8_t kFlagUnread = 0x02;' 'schema-v1 unread flag value must remain stable'
+require "$PERSIST" 'm.unread = (r.flags & kFlagUnread) ? 1 : 0;' 'unread state must restore from persistent history'
 
 # Roadmap itself is part of the development contract.
 require "$ROADMAP" '## Piece 1 — UI platform and navigation shell' 'Piece 1 roadmap section must exist'
