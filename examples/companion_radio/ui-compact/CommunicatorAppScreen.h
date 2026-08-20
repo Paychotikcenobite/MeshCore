@@ -76,6 +76,14 @@ public:
   uint64_t replyTargetForMessage(int slot) const;
   bool getReplyTargetPreview(int slot, char* out, size_t len) const;
 
+  // Capture the unread boundary before openRow() clears unread flags, then keep
+  // a lightweight on-screen divider/newest affordance without rewriting chat.
+  void prepareUnreadNavigationForTouch(int16_t x, int16_t y, uint8_t gesture);
+  void noteNewMessageForUnreadNavigation(const char* from_name);
+  bool handleNewestTouch(int16_t x, int16_t y, uint8_t gesture);
+  bool handleNewestInput(char c);
+  void drawNewMessagesOverlay(DisplayDriver& display);
+
 private:
   enum Route : uint8_t {
     ROUTE_MAIN = 0,

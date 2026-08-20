@@ -99,6 +99,7 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   CommunicatorAppScreen* app = home ? (CommunicatorAppScreen*)home : nullptr;
   if (app) {
     app->addMessage(path_len, from_name, text);
+    app->noteNewMessageForUnreadNavigation(from_name);
     app->persistenceCheckpoint(true);
   }
   bool wake = !app || app->shouldWakeForMessage(from_name);
@@ -285,8 +286,11 @@ void UITask::loop() {
       } else if (app->contactAddActive()) {
         handled = app->handleContactAddTouch(tx, ty, gesture);
       } else {
+        // Capture unread state before the legacy openRow() path marks a chat read.
+        app->prepareUnreadNavigationForTouch(tx, ty, gesture);
         // A pending local reply chip is itself tappable to cancel.
         handled = app->handleReplyTouch(tx, ty, gesture);
+        if (!handled) handled = app->handleNewestTouch(tx, ty, gesture);
         // Replace the old Piece-4 placeholder long-press with the real modal.
         if (!handled) handled = app->tryOpenMessageActions(tx, ty, gesture);
         // Intercept Add contact before the older New Conversation placeholder.
@@ -321,6 +325,8 @@ void UITask::loop() {
     } else if (app && app->replyPending() && c == KEY_CANCEL) {
       app->clearPendingReply();
       showAlert("Reply reference cancelled", 800);
+    } else if (app && app->handleNewestInput(c)) {
+      // Trackball-right is a fast, non-text newest-message navigation action.
     } else {
       curr->handleInput(c);
     }
@@ -346,6 +352,7 @@ void UITask::loop() {
       _display->startFrame();
       int delay_ms = curr->render(*_display);
       if (app) app->drawDirectSendOverlay(*_display);
+      if (app) app->drawNewMessagesOverlay(*_display);
       if (app) app->drawReplyComposerOverlay(*_display);
       if (app && app->messageActionActive()) app->drawMessageActionOverlay(*_display);
       if (app && app->contactAddActive()) {

@@ -6,6 +6,7 @@ SCREEN_H="$ROOT/examples/companion_radio/ui-compact/CommunicatorAppScreen.h"
 DELIVERY_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorDelivery.cpp"
 ACTIONS_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorMessageActions.cpp"
 PERSIST_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
+UNREAD_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorUnreadNavigation.cpp"
 MESH_H="$ROOT/examples/companion_radio/MyMesh.h"
 MESH_DELIVERY_CPP="$ROOT/examples/companion_radio/ui-compact/MyMeshCompactDelivery.cpp"
 UI_TASK_CPP="$ROOT/examples/companion_radio/ui-compact/UITask.cpp"
@@ -73,6 +74,20 @@ require "Reply (local):" "$PERSIST_CPP" "composer must label reply scope accurat
 require "drawReplyComposerOverlay" "$UI_TASK_CPP" "pending Reply must be visible in the composer"
 require "handleReplyTouch" "$UI_TASK_CPP" "touch must allow cancelling a pending Reply"
 require "replyPending() && c == KEY_CANCEL" "$UI_TASK_CPP" "keyboard Esc must cancel Reply before leaving chat"
+
+require "prepareUnreadNavigationForTouch" "$UNREAD_CPP" "chat open must capture unread boundary before legacy read clearing"
+require "oldest -> newest" "$UNREAD_CPP" "new-message divider must anchor at the oldest unread chronological boundary"
+require "noteNewMessageForUnreadNavigation" "$UNREAD_CPP" "messages arriving in an open chat must extend the unread boundary"
+require "drawNewMessagesOverlay" "$UNREAD_CPP" "chat must render the new-message divider/navigation overlay"
+require "New messages" "$UNREAD_CPP" "visible unread boundary must be explicitly labeled"
+require "Newest >" "$UNREAD_CPP" "scrolled chats must expose newest navigation"
+require "_message_scroll = 0" "$UNREAD_CPP" "newest action must jump to newest messages"
+require "c != KEY_RIGHT" "$UNREAD_CPP" "trackball-right must be reserved for newest navigation while scrolled"
+require "prepareUnreadNavigationForTouch" "$UI_TASK_CPP" "UI must capture unread boundary before openRow clears it"
+require "noteNewMessageForUnreadNavigation" "$UI_TASK_CPP" "UI receive path must update unread navigation"
+require "handleNewestTouch" "$UI_TASK_CPP" "touch must expose newest navigation"
+require "handleNewestInput" "$UI_TASK_CPP" "trackball must expose newest navigation"
+require "drawNewMessagesOverlay" "$UI_TASK_CPP" "new-message divider must render after legacy chat"
 
 if grep -Fq "MESHCORE_COMPACT_UI" "$ROOT/variants/lilygo_tdeck/platformio.ini"; then
   :
