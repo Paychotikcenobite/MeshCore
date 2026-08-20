@@ -32,6 +32,25 @@ public:
   void markAllDirty();
   bool shouldWakeForMessage(const char* from_name);
 
+  // Navigation hooks used by UITask so the persistent header behaves like a
+  // single-top Android destination rather than stacking duplicate Settings /
+  // Radio screens. The universal back hook also fixes daughter screens whose
+  // local touch handler does not have a back hitbox (notably New conversation).
+  void openSettingsSingleTop();
+  void openRadioSingleTop();
+  void navigateBack();
+  void navigateHome();
+
+  // Piece 3 durable local data engine. The implementation lives in
+  // CommunicatorAppPersistence.cpp and uses the already-mounted ESP32 SPIFFS.
+  void persistenceBegin();
+  void persistenceCheckpoint(bool force = false);
+  bool handlePersistentDataTouch(int16_t x, int16_t y, uint8_t gesture);
+
+  // Redraw the two persistent header actions with compact Material-like glyphs
+  // after the base screen renders its header.
+  void redrawHeaderActionIcons(DisplayDriver& display);
+
 private:
   enum Route : uint8_t {
     ROUTE_MAIN = 0,
@@ -93,7 +112,10 @@ private:
     uint8_t channel_index;
   };
 
-  static const int MESSAGE_CACHE = 64;
+  // Piece 3 keeps the on-screen working set bounded while making it durable.
+  // The append journal may contain older state revisions, but compaction keeps
+  // only the newest 96 live messages.
+  static const int MESSAGE_CACHE = 96;
   static const int MAX_LOCAL_CONTACTS = 40;
   static const int MAX_LOCAL_REPEATERS = 40;
   static const int MAX_LOCAL_CHANNELS = 16;
