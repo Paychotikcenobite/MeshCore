@@ -71,6 +71,25 @@ bool CommunicatorAppScreen::handleNewestTouch(int16_t x, int16_t y, uint8_t gest
 }
 
 bool CommunicatorAppScreen::handleNewestInput(char c) {
+  // UITask calls this before the legacy screen handler. Capture the keyboard /
+  // trackball Enter path here, return false, then handleInput() opens the row
+  // and clears unread exactly as it did before. Search Enter is excluded.
+  if (c == KEY_ENTER && _route == ROUTE_MAIN && _tab == TAB_CHATS && !_search_active) {
+    buildChatRows();
+    if (_selected >= 0 && _selected < _row_count) {
+      const char* name = _rows[_selected].name;
+      resetUnreadNav(this, name);
+      for (int n = (int)_message_count - 1; n >= 0; --n) {
+        int idx = (_message_head + MESSAGE_CACHE - n) % MESSAGE_CACHE;
+        const MessageEntry& m = _messages[idx];
+        if (!m.origin[0] || strcmp(m.origin, name) != 0 || !m.unread) continue;
+        if (g_unread_nav.boundary_slot < 0) g_unread_nav.boundary_slot = idx;
+        if (g_unread_nav.count < 255) ++g_unread_nav.count;
+      }
+    }
+    return false;
+  }
+
   if (_route != ROUTE_CHAT || _message_scroll <= 0 || c != KEY_RIGHT) return false;
   _message_scroll = 0;
   _dirty = DIRTY_ALL;
