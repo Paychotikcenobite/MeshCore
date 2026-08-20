@@ -278,13 +278,17 @@ void UITask::loop() {
       app->persistenceCheckpoint(true);
 
       bool handled = false;
-      // The Add Contact editor is modal; don't let persistent-header actions
-      // leak through it while the user is entering a key.
-      if (app->contactAddActive()) {
+      // Message actions and Add Contact are modal. They get first refusal so
+      // taps cannot leak through to chat/header navigation underneath them.
+      if (app->messageActionActive()) {
+        handled = app->handleMessageActionTouch(tx, ty, gesture);
+      } else if (app->contactAddActive()) {
         handled = app->handleContactAddTouch(tx, ty, gesture);
       } else {
+        // Replace the old Piece-4 placeholder long-press with the real modal.
+        handled = app->tryOpenMessageActions(tx, ty, gesture);
         // Intercept Add contact before the older New Conversation placeholder.
-        handled = app->tryBeginContactAdd(tx, ty, gesture);
+        if (!handled) handled = app->tryBeginContactAdd(tx, ty, gesture);
         if (!handled && gesture == COMPACT_TOUCH_TAP && ty <= 42) {
           if (tx >= 277) { app->openSettingsSingleTop(); handled = true; }
           else if (tx >= 234) { app->openRadioSingleTop(); handled = true; }
@@ -306,7 +310,8 @@ void UITask::loop() {
   char c = pollInput();
   if (c && curr) {
     if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
-    if (app && app->contactAddActive()) app->handleContactAddInput(c);
+    if (app && app->messageActionActive()) app->handleMessageActionInput(c);
+    else if (app && app->contactAddActive()) app->handleContactAddInput(c);
     else curr->handleInput(c);
     if (app) {
       app->reconcileDirectSendState();
@@ -329,6 +334,7 @@ void UITask::loop() {
       _display->startFrame();
       int delay_ms = curr->render(*_display);
       if (app) app->drawDirectSendOverlay(*_display);
+      if (app && app->messageActionActive()) app->drawMessageActionOverlay(*_display);
       if (app && app->contactAddActive()) {
         app->drawContactAddOverlay(*_display);
         full_visual = true;

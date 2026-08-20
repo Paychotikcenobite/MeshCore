@@ -57,6 +57,14 @@ public:
   void reconcileDirectSendState();
   void drawDirectSendOverlay(DisplayDriver& display);
 
+  // Piece 4 per-message actions are a modal overlay so they do not disturb the
+  // validated chat renderer or GT911 input path.
+  bool messageActionActive() const;
+  bool tryOpenMessageActions(int16_t x, int16_t y, uint8_t gesture);
+  bool handleMessageActionTouch(int16_t x, int16_t y, uint8_t gesture);
+  bool handleMessageActionInput(char c);
+  void drawMessageActionOverlay(DisplayDriver& display);
+
 private:
   enum Route : uint8_t {
     ROUTE_MAIN = 0,
@@ -85,8 +93,9 @@ private:
   enum RepeaterSort : uint8_t { REPEATER_RECENT = 0, REPEATER_DISTANCE = 1 };
   enum RowKind : uint8_t { ROW_NONE = 0, ROW_CONTACT, ROW_CHANNEL, ROW_REPEATER, ROW_RECENT_REPEATER, ROW_UNKNOWN };
   enum Dirty : uint8_t { DIRTY_NONE = 0, DIRTY_COMPOSER, DIRTY_ALL };
-  // Preserve the persisted values of SENT=1 and FAILED=2 from schema v1.
-  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT = 1, SEND_FAILED = 2, SEND_SENDING = 3 };
+  // Preserve persisted schema-v1 SENT=1 and FAILED=2. CONFIRMED=4 is new and
+  // may only be written after a real direct-message ACK is observed.
+  enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT = 1, SEND_FAILED = 2, SEND_SENDING = 3, SEND_CONFIRMED = 4 };
 
   struct MessageEntry {
     uint32_t timestamp;
