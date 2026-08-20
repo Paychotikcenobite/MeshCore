@@ -90,7 +90,7 @@ require "$PERSIST" 'last-known display name only; never the primary key' 'displa
 require "$PERSIST" 'partial write/corrupt tail: keep valid prefix' 'append journal must recover from an incomplete/corrupt tail'
 require "$PERSIST" 'kCompactAtBytes' 'journal growth must be bounded by compaction'
 require "$PERSIST" 'replaceAtomically' 'compaction/draft snapshots must use replacement recovery semantics'
-require "$PERSIST" 'drafts are keyed by the same stable contact/channel identity' 'drafts must survive reboot without being keyed by mutable names'
+require "$PERSIST" 'Drafts are keyed by the same stable contact/channel identity' 'drafts must survive reboot without being keyed by mutable names'
 require "$PERSIST" 'r.send_state = _messages[i].send_state' 'send metadata must persist'
 require "$PERSIST" 'm.unread = (r.flags & 0x02) ? 1 : 0;' 'unread state must restore from persistent history'
 
