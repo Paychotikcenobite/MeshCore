@@ -53,6 +53,14 @@ void markCompactSlotLost(int slot, uint32_t ack, unsigned long msg_sent) {
 
 } // namespace
 
+bool MyMesh::sendCompactGroupMessage(uint32_t timestamp, mesh::GroupChannel& channel, const char* sender_name,
+                                     const char* text, int text_len) {
+  // BaseChatMesh group text is always a flood send and has no receiver ACK.
+  // This wrapper exists so the Compact UI has an explicit, target-gated send
+  // boundary without changing the MeshCore packet format or phone/BLE path.
+  return BaseChatMesh::sendGroupMessage(timestamp, channel, sender_name, text, text_len);
+}
+
 int MyMesh::sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text,
                                uint32_t& expected_ack, uint32_t& est_timeout) {
   expected_ack = 0;
