@@ -32,25 +32,15 @@ public:
   void markAllDirty();
   bool shouldWakeForMessage(const char* from_name);
 
-  // Navigation hooks used by UITask so the persistent header behaves like a
-  // single-top Android destination rather than stacking duplicate Settings /
-  // Radio screens. The universal back hook also fixes daughter screens whose
-  // local touch handler does not have a back hitbox (notably New conversation).
   void openSettingsSingleTop();
   void openRadioSingleTop();
   void navigateBack();
   void navigateHome();
 
-  // Piece 3 durable local data engine. The implementation lives in
-  // CommunicatorAppPersistence.cpp and uses the already-mounted ESP32 SPIFFS.
   void persistenceBegin();
   void persistenceCheckpoint(bool force = false);
   bool handlePersistentDataTouch(int16_t x, int16_t y, uint8_t gesture);
 
-  // Manual contact workflow for the standalone T-Deck. The phone can scan QR;
-  // standard T-Deck cannot, so this accepts a display name plus the contact's
-  // full 32-byte public key from the physical keyboard. Records are persisted
-  // separately and rehydrated into BaseChatMesh after boot.
   void manualContactsBegin();
   bool tryBeginContactAdd(int16_t x, int16_t y, uint8_t gesture);
   bool contactAddActive() const;
@@ -58,10 +48,9 @@ public:
   bool handleContactAddInput(char c);
   void drawContactAddOverlay(DisplayDriver& display);
 
-  // Legacy v10 header redraw remains for compatibility; v11 uses the Fluent
-  // alpha-mask renderer below for Windows-like Wi-Fi and Settings glyphs.
   void redrawHeaderActionIcons(DisplayDriver& display);
   void redrawHeaderActionIconsFluent(DisplayDriver& display);
+  bool fullVisualRedrawPending() const;
 
 private:
   enum Route : uint8_t {
@@ -124,9 +113,6 @@ private:
     uint8_t channel_index;
   };
 
-  // Piece 3 keeps the on-screen working set bounded while making it durable.
-  // The append journal may contain older state revisions, but compaction keeps
-  // only the newest 96 live messages.
   static const int MESSAGE_CACHE = 96;
   static const int MAX_LOCAL_CONTACTS = 40;
   static const int MAX_LOCAL_REPEATERS = 40;
