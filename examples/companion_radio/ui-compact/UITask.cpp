@@ -33,7 +33,7 @@ static const ColorVal ALERT_BG = 0x1127;
 static const ColorVal ALERT_BORDER = 0x11EF;
 static const ColorVal ALERT_TEXT = 0xFFFF;
 
-// Preserve the validated v8 GT911 recovery wrapper and LilyGO driver path.
+// Preserve the physically validated v8 GT911 recovery wrapper and LilyGO driver path.
 static TouchDrvGT911 tdeck_touch;
 
 void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs* node_prefs) {
@@ -87,8 +87,10 @@ void UITask::msgRead(int msgcount) {
 
 void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) {
   _msgcount = msgcount;
-  if (home) ((CommunicatorAppScreen*)home)->addMessage(path_len, from_name, text);
-  if (_display) {
+  CommunicatorAppScreen* app = home ? (CommunicatorAppScreen*)home : nullptr;
+  if (app) app->addMessage(path_len, from_name, text);
+  bool wake = !app || app->shouldWakeForMessage(from_name);
+  if (_display && wake) {
     if (!_display->isOn()) _display->turnOn();
     _auto_off = millis() + AUTO_OFF_MILLIS;
     _next_refresh = 0;
@@ -146,8 +148,6 @@ bool UITask::pollTouch(int16_t& x, int16_t& y, uint8_t& gesture) {
     }
     _touch_last_seen = millis();
 
-    // Long press is additive only. It does not change tap/release timing and is
-    // emitted only when the controller continues supplying a held contact.
     if (!_touch_long_sent && millis() - _touch_started_at >= 650) {
       int dx = _touch_x - _touch_start_x;
       int dy = _touch_y - _touch_start_y;
