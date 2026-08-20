@@ -30,12 +30,9 @@ jobs:
           mkdir -p reference-out
           cp out/* reference-out/
 
-      - name: Apply GT911 v4 touch patch
-        run: python3 tools/communicator_touch_patch_v4.py
-
       - name: Build Communicator Compact target
         env:
-          FIRMWARE_VERSION: compact-v4-touch
+          FIRMWARE_VERSION: compact-v5-gt911
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
       - name: Record firmware identities
