@@ -12,8 +12,12 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: communicator-compact-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-tdeck-compact:
+  compact:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,26 +29,41 @@ jobs:
       - name: Setup MeshCore build environment
         uses: ./.github/actions/setup-build-environment
 
-      - name: Build standard LilyGO T-Deck BLE communicator
-        env:
-          FIRMWARE_VERSION: reference
-        run: |
-          /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
-          mkdir -p reference-out
-          cp out/* reference-out/
-
       - name: Build Communicator Compact target
         env:
           FIRMWARE_VERSION: compact-v10-nav-piece3
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
-      - name: Record firmware identities
+      - name: Record compact firmware identity
         run: |
           echo "Commit: $GITHUB_SHA"
-          echo "Reference firmware:"
-          ls -lh reference-out
-          sha256sum reference-out/*
-          echo "Compact firmware:"
+          ls -lh out
+          sha256sum out/*
+
+      - name: Upload Communicator Compact firmware
+        uses: actions/upload-artifact@v7
+        with:
+          name: tdeck-communicator-compact
+          path: out/*
+          if-no-files-found: error
+
+  reference:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MeshCore build environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build standard LilyGO T-Deck BLE communicator
+        env:
+          FIRMWARE_VERSION: reference
+        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
+
+      - name: Record reference firmware identity
+        run: |
+          echo "Commit: $GITHUB_SHA"
           ls -lh out
           sha256sum out/*
 
@@ -52,12 +71,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: tdeck-upstream-reference
-          path: reference-out/*
-          if-no-files-found: error
-
-      - name: Upload Communicator Compact firmware
-        uses: actions/upload-artifact@v7
-        with:
-          name: tdeck-communicator-compact
           path: out/*
           if-no-files-found: error
