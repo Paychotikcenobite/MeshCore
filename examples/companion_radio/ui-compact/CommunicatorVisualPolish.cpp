@@ -97,6 +97,10 @@ void drawAlphaMask4(DisplayDriver& d, int x, int y, const uint8_t* mask,
 
 } // namespace
 
+bool CommunicatorAppScreen::fullVisualRedrawPending() const {
+  return _dirty == DIRTY_ALL;
+}
+
 void CommunicatorAppScreen::redrawHeaderActionIconsFluent(DisplayDriver& d) {
   const ColorVal bg = _light_mode ? (ColorVal)0xF7DF : (ColorVal)0x0084;
   const ColorVal card = _light_mode ? (ColorVal)0xFFFF : (ColorVal)0x08E6;
