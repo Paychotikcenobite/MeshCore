@@ -27,13 +27,14 @@ jobs:
         run: |
           /usr/bin/env bash tests/CommunicatorCompactUiChecks.sh
           /usr/bin/env bash tests/CommunicatorCompactDeliveryChecks.sh
+          /usr/bin/env bash tests/CommunicatorCompactPiece4CompleteChecks.sh
 
       - name: Setup MeshCore build environment
         uses: ./.github/actions/setup-build-environment
 
       - name: Build Communicator Compact target
         env:
-          FIRMWARE_VERSION: compact-v12-piece4-ack
+          FIRMWARE_VERSION: compact-v13-piece4-complete
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
       - name: Record compact firmware identity
