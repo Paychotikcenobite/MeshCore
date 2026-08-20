@@ -6,6 +6,8 @@ UI_H="examples/companion_radio/ui-compact/CommunicatorAppScreen.h"
 TASK="examples/companion_radio/ui-compact/UITask.cpp"
 TOUCH="examples/companion_radio/ui-compact/TouchDrvGT911Recovery.hpp"
 PERSIST="examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
+CONTACT="examples/companion_radio/ui-compact/CommunicatorContactAdd.cpp"
+VISUAL="examples/companion_radio/ui-compact/CommunicatorVisualPolish.cpp"
 DISPLAY="src/helpers/ui/ST7789LCDDisplay.cpp"
 ROADMAP="docs/communicator-compact-roadmap.md"
 
@@ -53,8 +55,13 @@ require "$TASK" 'app->openRadioSingleTop();' 'Radio header action must use singl
 require "$TASK" 'app->navigateBack();' 'daughter-screen back must be universal so New conversation can return to main'
 require "$PERSIST" 'void CommunicatorAppScreen::openSettingsSingleTop()' 'single-top Settings navigation implementation must exist'
 require "$PERSIST" 'void CommunicatorAppScreen::navigateBack()' 'universal back implementation must exist'
-require "$PERSIST" 'Material/Wi-Fi-like radio glyph' 'header wireless glyph must be the improved Wi-Fi-style icon'
-require "$PERSIST" 'Android-style settings gear' 'header Settings glyph must use the improved Android-style gear'
+
+# Visual polish: recognisable Windows/Fluent header glyphs with real coverage AA.
+require "$TASK" 'redrawHeaderActionIconsFluent' 'runtime must use the Fluent icon layer rather than the v10 line-art fallback'
+require "$VISUAL" 'SETTINGS24_A4' 'Settings must use a rasterized Fluent-style 24px mask'
+require "$VISUAL" 'WIFI24_A4' 'wireless action must use a 24px Windows/Fluent fan mask'
+require "$VISUAL" 'blend565' 'anti-aliased icon edges must blend coverage into their button background'
+require "$VISUAL" '4-bit alpha masks' 'visual layer must document its sub-pixel coverage approach'
 
 # Piece 2: Chats home and organization semantics derived from Android Communicator.
 require "$UI_H" 'FILTER_ALL' 'All filter must exist'
@@ -75,6 +82,15 @@ require "$UI" 'metaFlag(meta,0x08)?"Unarchive":"Archive"' 'Archive action must r
 require "$UI" '"Delete local history"' 'Delete action must remain explicitly local'
 require "$UI" '_show_public' 'Public / World visibility must remain a distinct setting'
 require "$UI" 'ROUTE_NEW_CONVERSATION' 'New Conversation must remain a daughter screen'
+
+# Standalone contact creation: without this, a fresh T-Deck cannot initiate DMs.
+require "$TASK" 'app->manualContactsBegin();' 'manual contacts must rehydrate after normal MeshCore startup'
+require "$TASK" 'app->tryBeginContactAdd' 'New Conversation Add contact must enter the real standalone editor'
+require "$CONTACT" 'the_mesh.addContact(ci)' 'manual public-key contacts must become real BaseChatMesh contacts'
+require "$CONTACT" 'the_mesh.lookupContactByPubKey' 'contact editor must update/deduplicate by full identity key'
+require "$CONTACT" 'Public key - 32 bytes / 64 hex digits' 'editor must make the full-key requirement explicit'
+require "$CONTACT" 'mcccontacts' 'manual contacts must survive reboot independently of volatile UI state'
+require "$CONTACT" 'c.out_path_len = OUT_PATH_UNKNOWN' 'manually added contacts must start flood-capable until a direct route is learned'
 
 # Piece 3: durable, identity-keyed local data engine.
 require "$UI_H" 'static const int MESSAGE_CACHE = 96;' 'persistent working-set limit must remain explicit and bounded'
@@ -102,4 +118,4 @@ require "$ROADMAP" '## Piece 12 — Integration, performance, power, and release
 # Do not let future refactors silently reintroduce the obsolete single-screen class.
 forbid "$TASK" 'new CommunicatorScreen(' 'legacy one-off CommunicatorScreen must not return'
 
-echo "Communicator Compact Piece 1/2/3 retention checks passed"
+echo "Communicator Compact Piece 1/2/3 + contact/visual retention checks passed"
