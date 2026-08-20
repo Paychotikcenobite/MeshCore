@@ -5,6 +5,7 @@ UI="examples/companion_radio/ui-compact/CommunicatorAppScreen.cpp"
 UI_H="examples/companion_radio/ui-compact/CommunicatorAppScreen.h"
 TASK="examples/companion_radio/ui-compact/UITask.cpp"
 TOUCH="examples/companion_radio/ui-compact/TouchDrvGT911Recovery.hpp"
+PERSIST="examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
 DISPLAY="src/helpers/ui/ST7789LCDDisplay.cpp"
 ROADMAP="docs/communicator-compact-roadmap.md"
 
@@ -39,7 +40,7 @@ require "$TASK" 'home = new CommunicatorAppScreen(this, &rtc_clock);' 'Compact t
 require "$TASK" 'gesture = COMPACT_TOUCH_LONG_PRESS;' 'long press must be additive to the validated tap/swipe path'
 require "$DISPLAY" '#if !(defined(LILYGO_TDECK) && defined(MESHCORE_COMPACT_UI))' 'Compact renderer must retain the no-full-screen-clear startFrame guard'
 
-# Piece 1: product shell and navigation model.
+# Piece 1: product shell and corrected navigation semantics.
 require "$UI_H" 'ROUTE_MAIN' 'main route must exist'
 require "$UI_H" 'ROUTE_SETTINGS' 'Settings daughter route must exist'
 require "$UI_H" 'ROUTE_RADIO' 'Radio Status daughter route must exist'
@@ -47,6 +48,13 @@ require "$UI" 'drawAppHeader(d)' 'persistent Communicator header must remain par
 require "$UI" 'drawTabs(d)' 'Chats / Repeaters tabs must remain persistent top-level destinations'
 require "$UI" '"MeshCore"' 'persistent app branding must remain MeshCore Communicator'
 require "$UI" '"Communicator"' 'persistent app branding must remain MeshCore Communicator'
+require "$TASK" 'app->openSettingsSingleTop();' 'Settings header action must use single-top navigation so repeated taps do not stack duplicate Settings routes'
+require "$TASK" 'app->openRadioSingleTop();' 'Radio header action must use single-top navigation'
+require "$TASK" 'app->navigateBack();' 'daughter-screen back must be universal so New conversation can return to main'
+require "$PERSIST" 'void CommunicatorAppScreen::openSettingsSingleTop()' 'single-top Settings navigation implementation must exist'
+require "$PERSIST" 'void CommunicatorAppScreen::navigateBack()' 'universal back implementation must exist'
+require "$PERSIST" 'Material/Wi-Fi-like radio glyph' 'header wireless glyph must be the improved Wi-Fi-style icon'
+require "$PERSIST" 'Android-style settings gear' 'header Settings glyph must use the improved Android-style gear'
 
 # Piece 2: Chats home and organization semantics derived from Android Communicator.
 require "$UI_H" 'FILTER_ALL' 'All filter must exist'
@@ -68,11 +76,30 @@ require "$UI" '"Delete local history"' 'Delete action must remain explicitly loc
 require "$UI" '_show_public' 'Public / World visibility must remain a distinct setting'
 require "$UI" 'ROUTE_NEW_CONVERSATION' 'New Conversation must remain a daughter screen'
 
-# Roadmap itself is now part of the development contract.
+# Piece 3: durable, identity-keyed local data engine.
+require "$UI_H" 'static const int MESSAGE_CACHE = 96;' 'persistent working-set limit must remain explicit and bounded'
+require "$TASK" 'persistenceBegin();' 'durable history must load after MeshCore/SPIFFS initialization'
+require "$TASK" 'persistenceCheckpoint(true);' 'navigation/messages/screen-off must checkpoint durable state'
+require "$PERSIST" 'kHistoryPath = "/mcc_history_v1.bin"' 'versioned persistent message journal must exist'
+require "$PERSIST" 'kDraftPath = "/mcc_drafts_v1.bin"' 'versioned persistent drafts store must exist'
+require "$PERSIST" 'constexpr uint16_t kSchemaVersion = 1;' 'storage schema must be versioned'
+require "$PERSIST" 'uint64_t id;' 'messages must have stable persistent IDs'
+require "$PERSIST" 'uint64_t reply_to;' 'message schema must reserve stable reply metadata'
+require "$PERSIST" 'uint8_t conv_key[32];' 'conversation storage must use a 32-byte stable identity key rather than display name'
+require "$PERSIST" 'last-known display name only; never the primary key' 'display names must not become database identity'
+require "$PERSIST" 'partial write/corrupt tail: keep valid prefix' 'append journal must recover from an incomplete/corrupt tail'
+require "$PERSIST" 'kCompactAtBytes' 'journal growth must be bounded by compaction'
+require "$PERSIST" 'replaceAtomically' 'compaction/draft snapshots must use replacement recovery semantics'
+require "$PERSIST" 'drafts are keyed by the same stable contact/channel identity' 'drafts must survive reboot without being keyed by mutable names'
+require "$PERSIST" 'r.send_state = _messages[i].send_state' 'send metadata must persist'
+require "$PERSIST" 'm.unread = (r.flags & 0x02) ? 1 : 0;' 'unread state must restore from persistent history'
+
+# Roadmap itself is part of the development contract.
 require "$ROADMAP" '## Piece 1 — UI platform and navigation shell' 'Piece 1 roadmap section must exist'
+require "$ROADMAP" '## Piece 3 — Persistent local data engine' 'Piece 3 roadmap section must exist'
 require "$ROADMAP" '## Piece 12 — Integration, performance, power, and release validation' 'roadmap must cover full-project integration/release work'
 
 # Do not let future refactors silently reintroduce the obsolete single-screen class.
 forbid "$TASK" 'new CommunicatorScreen(' 'legacy one-off CommunicatorScreen must not return'
 
-echo "Communicator Compact Piece 1/2 retention checks passed"
+echo "Communicator Compact Piece 1/2/3 retention checks passed"
