@@ -315,11 +315,17 @@ void UITask::loop() {
 
   if (_display && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
+      // Capture dirty state before render(), because render clears it. Fluent
+      // 4-bit masks are only necessary on full frames, not composer-only text
+      // updates. This keeps typing responsive despite true edge blending.
+      bool full_visual = app && app->fullVisualRedrawPending();
       _display->startFrame();
       int delay_ms = curr->render(*_display);
-      if (app && app->contactAddActive()) app->drawContactAddOverlay(*_display);
-      // v11 uses anti-aliased 4-bit-alpha Fluent/Windows-like icon masks.
-      if (app) app->redrawHeaderActionIconsFluent(*_display);
+      if (app && app->contactAddActive()) {
+        app->drawContactAddOverlay(*_display);
+        full_visual = true;
+      }
+      if (app && full_visual) app->redrawHeaderActionIconsFluent(*_display);
       if (_alert_expiry) {
         const int x = 38, y = 95, w = 244, h = 46;
         _display->setColor(ALERT_BG);
