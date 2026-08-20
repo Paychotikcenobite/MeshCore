@@ -6,6 +6,7 @@
 #include <helpers/SensorManager.h>
 #include <helpers/MultiSerialInterface.h>
 #include <Arduino.h>
+#include "TouchDrvGT911Recovery.hpp"
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
 
