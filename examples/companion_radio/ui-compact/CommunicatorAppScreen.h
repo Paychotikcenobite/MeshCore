@@ -4,14 +4,15 @@
 #include <MeshCore.h>
 #include <helpers/ui/UIScreen.h>
 #include <helpers/ui/DisplayDriver.h>
+#include <helpers/BaseChatMesh.h>
 #include <helpers/ContactInfo.h>
 #include <helpers/ChannelDetails.h>
 
 class UITask;
 
-// Touch gestures delivered by UITask.  The first five values preserve the
-// v8 touchscreen path; LONG_PRESS adds the compact conversation menu used by
-// the Android Communicator without changing ordinary tap/swipe handling.
+// Touch gestures delivered by UITask. The first five values preserve the
+// physically validated v8 touchscreen path; LONG_PRESS only adds the compact
+// conversation menu used by the Android Communicator.
 enum CompactTouchGesture : uint8_t {
   COMPACT_TOUCH_TAP = 0,
   COMPACT_TOUCH_SWIPE_UP = 1,
@@ -58,6 +59,7 @@ private:
 
   enum MainTab : uint8_t { TAB_CHATS = 0, TAB_REPEATERS = 1 };
   enum ChatFilter : uint8_t { FILTER_ALL = 0, FILTER_FAVORITES, FILTER_UNREAD, FILTER_ATTENTION };
+  enum RepeaterSort : uint8_t { REPEATER_RECENT = 0, REPEATER_DISTANCE = 1 };
   enum RowKind : uint8_t { ROW_NONE = 0, ROW_CONTACT, ROW_CHANNEL, ROW_REPEATER, ROW_RECENT_REPEATER, ROW_UNKNOWN };
   enum Dirty : uint8_t { DIRTY_NONE = 0, DIRTY_COMPOSER, DIRTY_ALL };
   enum SendState : uint8_t { SEND_NONE = 0, SEND_SENT, SEND_FAILED };
@@ -107,6 +109,7 @@ private:
   uint8_t _route_depth;
   MainTab _tab;
   ChatFilter _filter;
+  RepeaterSort _repeater_sort;
   Dirty _dirty;
 
   bool _light_mode;
@@ -178,6 +181,8 @@ private:
   bool rowNeedsAttention(const Row& row) const;
   void clearUnreadFor(const char* name);
   void deleteLocalMessagesFor(const char* name);
+  bool hasDistanceOrigin() const;
+  double distanceKm(const ContactInfo& contact) const;
 
   void pushRoute(Route route);
   void replaceRoute(Route route);
