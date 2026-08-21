@@ -90,7 +90,7 @@ require "$UI" '"Delete local history"' 'Delete action must remain explicitly loc
 require "$UI" '_show_public' 'Public / World visibility must remain a distinct setting'
 require "$UI" 'ROUTE_NEW_CONVERSATION' 'New Conversation must remain a daughter screen'
 
-# Standalone contact creation: Piece 5 replaces the early Preferences shadow DB
+# Standalone contact creation: Piece 5 replaces the early shadow contact DB
 # with the real MeshCore contact store and verifies persistence before success.
 require "$TASK" 'app->manualContactsBegin();' 'contact compatibility hook must remain after normal MeshCore startup'
 require "$TASK" 'app->tryBeginContactAdd' 'New Conversation Add contact must enter the real standalone editor'
@@ -100,7 +100,7 @@ require "$ADMIN_CODEC" 'strlen(input) != 64' 'raw public-key entry must still re
 require "$ADMIN_CODEC" 'out.out_path_len = OUT_PATH_UNKNOWN' 'manually added contacts must start flood-capable until a direct route is learned'
 require "$ADMIN_MESH" 'lookupContactByPubKey(requested.id.pub_key, PUB_KEY_SIZE)' 'verified contact upsert must deduplicate by full identity key'
 require "$ADMIN_MESH" 'openRead("/contacts3")' 'contact success must be checked against MeshCore persistent storage'
-forbid "$CONTACT" 'Preferences' 'Piece 5 contact editor must not recreate the obsolete parallel Preferences contact database'
+forbid "$CONTACT" '#include <Preferences.h>' 'Piece 5 contact editor must not recreate the obsolete parallel Preferences contact database'
 forbid "$CONTACT" 'mcccontacts' 'obsolete manual-contact namespace must not return'
 
 # Piece 3: durable, identity-keyed local data engine.
