@@ -4,13 +4,20 @@ on:
   push:
     branches:
       - communicator-compact
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
 
+concurrency:
+  group: apply-compact-v14-source-patch
+  cancel-in-progress: false
+
 jobs:
   apply:
-    if: github.event.head_commit.message == 'chore(compact): stage v14 regression patch'
+    if: github.event_name == 'pull_request' || github.event.head_commit.message == 'chore(compact): trigger v14 source patch'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout patch staging head
@@ -19,10 +26,22 @@ jobs:
           ref: communicator-compact
           fetch-depth: 0
 
+      - name: Skip if source patch is already present
+        id: state
+        shell: bash
+        run: |
+          if grep -Fq 'compact-v14-ui-ack-fix' .github/workflows/communicator-compact-ci.yml; then
+            echo 'needed=false' >> "$GITHUB_OUTPUT"
+          else
+            echo 'needed=true' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Apply narrowly scoped v14 source changes
+        if: steps.state.outputs.needed == 'true'
         run: python3 tools/communicator_compact_v14_patch.py
 
       - name: Commit regression fixes
+        if: steps.state.outputs.needed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
