@@ -1,8 +1,10 @@
 #include "CommunicatorAdminCodec.h"
 
 #include <helpers/AdvertDataHelpers.h>
+#include <helpers/ArduinoHelpers.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 namespace CompactAdminCodec {
 namespace {
