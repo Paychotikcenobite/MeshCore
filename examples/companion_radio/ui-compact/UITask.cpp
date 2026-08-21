@@ -69,6 +69,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs
   // Piece 5 keeps this compatibility hook, but standalone contacts now use
   // MeshCore's normal persistent /contacts3 store rather than a parallel NVS DB.
   app->manualContactsBegin();
+  // Snapshot existing contacts so only genuinely new RF-learned people produce
+  // the Heard/Add/Dismiss prompt after startup.
+  app->primeAdvertContactBaseline();
   _next_refresh = 0;
   showAlert(_touch_ready ? "GT911 touch ready" : "GT911 TOUCH FAILED", _touch_ready ? 900 : 3000);
 }
@@ -263,6 +266,16 @@ char UITask::pollInput() {
 void UITask::loop() {
   CommunicatorAppScreen* app = home ? (CommunicatorAppScreen*)home : nullptr;
 
+  if (app) {
+    bool had_prompt = app->advertPromptActive();
+    app->pollAdvertContactChanges();
+    if (!had_prompt && app->advertPromptActive()) {
+      if (_display && !_display->isOn()) _display->turnOn();
+      _auto_off = millis() + AUTO_OFF_MILLIS;
+      _next_refresh = 0;
+    }
+  }
+
   if (_alert_expiry && millis() >= _alert_expiry) {
     _alert_expiry = 0;
     if (app) app->markAllDirty();
@@ -280,8 +293,11 @@ void UITask::loop() {
 
       bool handled = false;
       // Modal layers get first refusal so taps cannot leak through to the
-      // validated chat/header navigation underneath them.
-      if (app->messageActionActive()) {
+      // validated chat/header navigation underneath them. Heard adverts are
+      // topmost because Add/Dismiss must be an explicit decision.
+      if (app->advertPromptActive()) {
+        handled = app->handleAdvertPromptTouch(tx, ty, gesture);
+      } else if (app->messageActionActive()) {
         handled = app->handleMessageActionTouch(tx, ty, gesture);
       } else if (app->contactAddActive()) {
         handled = app->handleContactAddTouch(tx, ty, gesture);
@@ -322,7 +338,9 @@ void UITask::loop() {
   char c = pollInput();
   if (c && curr) {
     if (app && c == KEY_CANCEL) app->persistenceCheckpoint(true);
-    if (app && app->messageActionActive()) {
+    if (app && app->advertPromptActive()) {
+      app->handleAdvertPromptInput(c);
+    } else if (app && app->messageActionActive()) {
       app->handleMessageActionInput(c);
     } else if (app && app->contactAddActive()) {
       app->handleContactAddInput(c);
@@ -351,12 +369,14 @@ void UITask::loop() {
 
   if (_display && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {
-      // Capture dirty state before render(), because render clears it. Fluent
-      // 4-bit masks are only necessary on full frames, not composer-only text
-      // updates. This keeps typing responsive despite true edge blending.
+      // Capture dirty state before render(), because render clears it. A4 text
+      // is layered over the legacy renderer, keeping all established geometry
+      // and touch targets unchanged.
       bool full_visual = app && app->fullVisualRedrawPending();
       _display->startFrame();
       int delay_ms = curr->render(*_display);
+      if (app && full_visual) app->redrawAATextPass(*_display);
+      if (app && !full_visual) app->redrawAAComposerText(*_display);
       if (app) app->drawDirectSendOverlay(*_display);
       if (app) app->drawNewMessagesOverlay(*_display);
       if (app) app->drawReplyComposerOverlay(*_display);
@@ -372,6 +392,7 @@ void UITask::loop() {
         app->drawPiece5Affordances(*_display);
       }
       if (app && full_visual) app->redrawHeaderActionIconsFluent(*_display);
+      if (app && app->advertPromptActive()) app->drawAdvertPromptOverlay(*_display);
       if (_alert_expiry) {
         const int x = 38, y = 95, w = 244, h = 46;
         _display->setColor(ALERT_BG);
