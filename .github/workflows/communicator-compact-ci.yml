@@ -23,18 +23,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Check Communicator Compact Piece 1 through 4 contract
+      - name: Check Communicator Compact Piece 1 through 5 contract
         run: |
           /usr/bin/env bash tests/CommunicatorCompactUiChecks.sh
           /usr/bin/env bash tests/CommunicatorCompactDeliveryChecks.sh
           /usr/bin/env bash tests/CommunicatorCompactPiece4CompleteChecks.sh
+          /usr/bin/env bash tests/CommunicatorCompactPiece5Checks.sh
 
       - name: Setup MeshCore build environment
         uses: ./.github/actions/setup-build-environment
 
       - name: Build Communicator Compact target
         env:
-          FIRMWARE_VERSION: compact-v14-ui-ack-fix
+          FIRMWARE_VERSION: compact-v15-piece5-contacts-groups
         run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
 
       - name: Record compact firmware identity
