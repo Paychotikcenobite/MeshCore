@@ -54,7 +54,7 @@ need "$ADMIN" 'MESHCORE_SHARE'
 need "$ADMIN" 'COMPACT_TOUCH_SWIPE_UP'
 need "$ADMIN" 'COMPACT_TOUCH_SWIPE_DOWN'
 need "$PIO" 'ricmoo/QRCode @ 0.0.1'
-need "$WORKFLOW" 'FIRMWARE_VERSION: compact-v15-piece5-contacts-groups'
+need "$WORKFLOW" 'FIRMWARE_VERSION: compact-v16-piece5-advert-aa'
 
 # Piece 5 is layered into UITask dispatch; the validated GT911 classifier stays
 # exactly in the existing polling path and is not replaced by the admin code.
