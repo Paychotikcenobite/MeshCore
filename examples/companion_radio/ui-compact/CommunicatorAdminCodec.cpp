@@ -1,7 +1,6 @@
 #include "CommunicatorAdminCodec.h"
 
 #include <helpers/AdvertDataHelpers.h>
-#include <helpers/ArduinoHelpers.h>
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +10,15 @@ namespace {
 
 const char* kContactPrefix = "meshcore://contact/add?";
 const char* kChannelPrefix = "meshcore://channel/add?";
+
+void copyText(char* dest, const char* src, size_t len) {
+  if (!dest || !len) return;
+  if (!src) src = "";
+  size_t n = strlen(src);
+  if (n >= len) n = len - 1;
+  if (n) memcpy(dest, src, n);
+  dest[n] = 0;
+}
 
 int hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -99,7 +107,7 @@ bool queryValue(const char* query, const char* wanted, char* out, size_t out_len
 
 void setError(char* error, size_t len, const char* text) {
   if (!error || !len) return;
-  StrHelper::strncpy(error, text ? text : "Invalid input", len);
+  copyText(error, text ? text : "Invalid input", len);
 }
 
 bool validContactType(int type) {
@@ -125,14 +133,14 @@ bool parseContactInput(const char* input, const char* fallback_name, ContactInfo
       setError(error, error_len, "Contact link is missing public_key"); return false;
     }
     if (!queryValue(query, "name", name, sizeof(name))) {
-      if (fallback_name) StrHelper::strncpy(name, fallback_name, sizeof(name));
+      if (fallback_name) copyText(name, fallback_name, sizeof(name));
     }
     if (queryValue(query, "type", type_buf, sizeof(type_buf))) type = atoi(type_buf);
     if (!validContactType(type)) { setError(error, error_len, "Unsupported contact type"); return false; }
   } else {
     if (strlen(input) != 64) { setError(error, error_len, "Key needs 64 hex digits or a contact URI"); return false; }
-    StrHelper::strncpy(key_hex, input, sizeof(key_hex));
-    if (fallback_name) StrHelper::strncpy(name, fallback_name, sizeof(name));
+    copyText(key_hex, input, sizeof(key_hex));
+    if (fallback_name) copyText(name, fallback_name, sizeof(name));
   }
 
   if (!name[0]) { setError(error, error_len, "A raw public key also needs a name"); return false; }
@@ -140,7 +148,7 @@ bool parseContactInput(const char* input, const char* fallback_name, ContactInfo
   if (!parseHex(key_hex, 64, key, sizeof(key))) { setError(error, error_len, "Invalid contact public key"); return false; }
 
   out.id = mesh::Identity(key);
-  StrHelper::strncpy(out.name, name, sizeof(out.name));
+  copyText(out.name, name, sizeof(out.name));
   out.type = (uint8_t)type;
   out.flags = 0;
   out.out_path_len = OUT_PATH_UNKNOWN;
@@ -172,7 +180,7 @@ bool parseChannelUri(const char* input, ChannelDetails& out, char* error, size_t
     setError(error, error_len, "Group secret needs 32 hex digits"); return false;
   }
   memset(&out.channel.secret[16], 0, 16);
-  StrHelper::strncpy(out.name, name, sizeof(out.name));
+  copyText(out.name, name, sizeof(out.name));
   return true;
 }
 
