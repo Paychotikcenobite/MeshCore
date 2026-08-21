@@ -66,8 +66,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors_ptr, NodePrefs
   curr = home;
   CommunicatorAppScreen* app = (CommunicatorAppScreen*)home;
   app->persistenceBegin();
-  // Rehydrate contacts created directly on the standalone T-Deck after the
-  // MeshCore store has completed its normal startup load.
+  // Piece 5 keeps this compatibility hook, but standalone contacts now use
+  // MeshCore's normal persistent /contacts3 store rather than a parallel NVS DB.
   app->manualContactsBegin();
   _next_refresh = 0;
   showAlert(_touch_ready ? "GT911 touch ready" : "GT911 TOUCH FAILED", _touch_ready ? 900 : 3000);
@@ -279,12 +279,14 @@ void UITask::loop() {
       app->persistenceCheckpoint(true);
 
       bool handled = false;
-      // Message actions and Add Contact are modal. They get first refusal so
-      // taps cannot leak through to chat/header navigation underneath them.
+      // Modal layers get first refusal so taps cannot leak through to the
+      // validated chat/header navigation underneath them.
       if (app->messageActionActive()) {
         handled = app->handleMessageActionTouch(tx, ty, gesture);
       } else if (app->contactAddActive()) {
         handled = app->handleContactAddTouch(tx, ty, gesture);
+      } else if (app->piece5AdminActive()) {
+        handled = app->handlePiece5AdminTouch(tx, ty, gesture);
       } else {
         // Capture unread state before the legacy openRow() path marks a chat read.
         app->prepareUnreadNavigationForTouch(tx, ty, gesture);
@@ -293,8 +295,10 @@ void UITask::loop() {
         if (!handled) handled = app->handleNewestTouch(tx, ty, gesture);
         // Replace the old Piece-4 placeholder long-press with the real modal.
         if (!handled) handled = app->tryOpenMessageActions(tx, ty, gesture);
-        // Intercept Add contact before the older New Conversation placeholder.
+        // Piece 5 intercepts standalone contact/group administration before
+        // the older placeholder New Conversation actions.
         if (!handled) handled = app->tryBeginContactAdd(tx, ty, gesture);
+        if (!handled) handled = app->tryBeginPiece5Admin(tx, ty, gesture);
         if (!handled && gesture == COMPACT_TOUCH_TAP && ty <= 42) {
           if (tx >= 277) { app->openSettingsSingleTop(); handled = true; }
           else if (tx >= 234) { app->openRadioSingleTop(); handled = true; }
@@ -322,6 +326,8 @@ void UITask::loop() {
       app->handleMessageActionInput(c);
     } else if (app && app->contactAddActive()) {
       app->handleContactAddInput(c);
+    } else if (app && app->piece5AdminActive()) {
+      app->handlePiece5AdminInput(c);
     } else if (app && app->replyPending() && c == KEY_CANCEL) {
       app->clearPendingReply();
       showAlert("Reply reference cancelled", 800);
@@ -358,6 +364,12 @@ void UITask::loop() {
       if (app && app->contactAddActive()) {
         app->drawContactAddOverlay(*_display);
         full_visual = true;
+      }
+      if (app && app->piece5AdminActive()) {
+        app->drawPiece5AdminOverlay(*_display);
+        full_visual = true;
+      } else if (app) {
+        app->drawPiece5Affordances(*_display);
       }
       if (app && full_visual) app->redrawHeaderActionIconsFluent(*_display);
       if (_alert_expiry) {
