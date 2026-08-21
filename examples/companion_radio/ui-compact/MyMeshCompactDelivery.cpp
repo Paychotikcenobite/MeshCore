@@ -23,6 +23,7 @@ struct CompactAckTrack {
   uint32_t ack;
   uint8_t slot;
   unsigned long msg_sent;
+  bool confirmed;
 };
 
 CompactSendStart g_compact_send_start = {};
@@ -73,6 +74,7 @@ int MyMesh::sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp,
                                uint32_t& expected_ack, uint32_t& est_timeout) {
   expected_ack = 0;
   est_timeout = 0;
+  memset(&g_compact_send_start, 0, sizeof(g_compact_send_start));
 
   // Stage the attempted packet metadata before any failure return. This lets
   // the UI persist both attempt number and planned route even when packet
@@ -86,9 +88,9 @@ int MyMesh::sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp,
   ContactInfo* stored = lookupContactByPubKey(recipient.id.pub_key, PUB_KEY_SIZE);
   if (!stored) return MSG_SEND_FAILED;
 
-  const unsigned long now = _ms->getMillis();
+  const unsigned long cleanup_now = _ms->getMillis();
   for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; ++i) {
-    if (expected_ack_table[i].ack && (unsigned long)(now - expected_ack_table[i].msg_sent) > kAckEntryStaleMs) {
+    if (expected_ack_table[i].ack && (unsigned long)(cleanup_now - expected_ack_table[i].msg_sent) > kAckEntryStaleMs) {
       markCompactSlotLost(i, expected_ack_table[i].ack, expected_ack_table[i].msg_sent);
       expected_ack_table[i].ack = 0;
       expected_ack_table[i].contact = nullptr;
@@ -110,16 +112,19 @@ int MyMesh::sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp,
   if (result == MSG_SEND_FAILED) return result;
 
   if (expected_ack) {
-    expected_ack_table[slot].msg_sent = now;
+    // Match the established phone/BLE path: register the ACK generation after
+    // sendMessage() has returned from packet handoff.
+    const unsigned long msg_sent = _ms->getMillis();
+    expected_ack_table[slot].msg_sent = msg_sent;
     expected_ack_table[slot].ack = expected_ack;
     expected_ack_table[slot].contact = stored;
     next_ack_idx = (slot + 1) % EXPECTED_ACK_TABLE_SIZE;
 
     g_compact_ack_tracks[track_slot].ack = expected_ack;
     g_compact_ack_tracks[track_slot].slot = (uint8_t)slot;
-    g_compact_ack_tracks[track_slot].msg_sent = now;
+    g_compact_ack_tracks[track_slot].msg_sent = msg_sent;
+    g_compact_ack_tracks[track_slot].confirmed = false;
 
-    memset(&g_compact_send_start, 0, sizeof(g_compact_send_start));
     g_compact_send_start.ready = true;
     strncpy(g_compact_send_start.origin, stored->name, sizeof(g_compact_send_start.origin) - 1);
     g_compact_send_start.ack = expected_ack;
@@ -157,6 +162,13 @@ bool MyMesh::takeCompactAttemptStart(char* origin, size_t origin_len, uint8_t& a
   return true;
 }
 
+void MyMesh::noteCompactAckReceived(uint32_t ack, unsigned long msg_sent) {
+  int track_idx = findCompactTrack(ack);
+  if (track_idx < 0) return;
+  CompactAckTrack& track = g_compact_ack_tracks[track_idx];
+  if (track.msg_sent == msg_sent) track.confirmed = true;
+}
+
 bool MyMesh::isCompactAckPending(uint32_t ack) const {
   int track_idx = findCompactTrack(ack);
   if (track_idx < 0) {
@@ -165,6 +177,10 @@ bool MyMesh::isCompactAckPending(uint32_t ack) const {
   }
 
   CompactAckTrack& track = g_compact_ack_tracks[track_idx];
+  if (track.confirmed) {
+    memset(&track, 0, sizeof(track));
+    return false;
+  }
   if (track.slot >= EXPECTED_ACK_TABLE_SIZE) return true;
 
   const AckTableEntry& entry = expected_ack_table[track.slot];
