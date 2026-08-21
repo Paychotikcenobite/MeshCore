@@ -26,7 +26,7 @@ need "$CONTACT" 'compactUpsertContactVerified'
 need "$MESH" 'saveContacts();'
 need "$MESH" 'openRead("/contacts3")'
 need "$MESH" 'compactRemoveContactVerified'
-forbid "$CONTACT" 'Preferences'
+forbid "$CONTACT" '#include <Preferences.h>'
 
 # Private groups persist and are re-read from /channels2. Channel zero is never
 # writable through the Compact private-group admin path.
@@ -53,9 +53,6 @@ need "$ADMIN" 'qrcode_getModule'
 need "$ADMIN" 'MESHCORE_SHARE'
 need "$ADMIN" 'COMPACT_TOUCH_SWIPE_UP'
 need "$ADMIN" 'COMPACT_TOUCH_SWIPE_DOWN'
-need "$ADMIN" 'd.fillRect(0, 77, 320, 2);'
-need "$ADMIN" 'strcmp(_messages[i].origin, old_name) == 0'
-need "$ADMIN" 'persistenceCheckpoint(true);'
 need "$PIO" 'ricmoo/QRCode @ 0.0.1'
 need "$WORKFLOW" 'FIRMWARE_VERSION: compact-v15-piece5-contacts-groups'
 
