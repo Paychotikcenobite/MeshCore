@@ -138,7 +138,19 @@ bool CommunicatorAppScreen::tryBeginPiece5Admin(int16_t x, int16_t y, uint8_t ge
 }
 
 void CommunicatorAppScreen::drawPiece5Affordances(DisplayDriver& d) {
-  if (g_admin.active || _route != ROUTE_CONVERSATION_DETAILS) return;
+  if (g_admin.active) return;
+
+  // Make the selected conversation color visible in the actual private-group
+  // chat, not just in the settings menu. This two-pixel rail is deliberately
+  // outside the message/composer redraw regions so typing stays flicker-free.
+  if (_route == ROUTE_CHAT && _active_kind == ROW_CHANNEL && _active_channel_index > 0) {
+    GroupExtra extra = loadGroupExtra(_active_channel, _active_channel_index);
+    d.setColor(colorValue(extra.color, _light_mode));
+    d.fillRect(0, 77, 320, 2);
+    return;
+  }
+
+  if (_route != ROUTE_CONVERSATION_DETAILS) return;
   if (_active_kind != ROW_CONTACT && _active_kind != ROW_CHANNEL) return;
   drawButton(d, 206, 187, 101, 28, _active_kind == ROW_CHANNEL ? "Manage group" : "Manage", true, true);
   if (_active_kind == ROW_CHANNEL && _active_channel_index > 0) {
@@ -389,22 +401,36 @@ bool CommunicatorAppScreen::handlePiece5AdminInput(char c) {
       }
       if (g_admin.mode == ADMIN_GROUP_RENAME) {
         if (_active_channel_index == 0) { _task->showAlert("Public / World is protected", 1000); return true; }
+        char old_name[sizeof(_active_name)];
+        StrHelper::strncpy(old_name, _active_name, sizeof(old_name));
         ChannelDetails requested = _active_channel, readback{};
         StrHelper::strncpy(requested.name, g_admin.input, sizeof(requested.name));
         if (!the_mesh.compactSetPrivateChannelVerified(_active_channel_index, requested, readback)) {
           _task->showAlert("Group rename verification failed", 1300); return true;
         }
+        for (int i = 0; i < MESSAGE_CACHE; ++i) {
+          if (_messages[i].origin[0] && strcmp(_messages[i].origin, old_name) == 0)
+            StrHelper::strncpy(_messages[i].origin, readback.name, sizeof(_messages[i].origin));
+        }
         _active_channel = readback; StrHelper::strncpy(_active_name, readback.name, sizeof(_active_name));
+        persistenceCheckpoint(true);
         _task->showAlert("Radio group name verified", 950);
         resetAdmin(ADMIN_GROUP_MANAGE); _dirty = DIRTY_ALL; return true;
       }
       if (g_admin.mode == ADMIN_CONTACT_RENAME) {
+        char old_name[sizeof(_active_name)];
+        StrHelper::strncpy(old_name, _active_name, sizeof(old_name));
         ContactInfo requested = _active_contact, readback{};
         StrHelper::strncpy(requested.name, g_admin.input, sizeof(requested.name));
         if (!the_mesh.compactUpsertContactVerified(requested, readback)) {
           _task->showAlert("Contact update verification failed", 1300); return true;
         }
+        for (int i = 0; i < MESSAGE_CACHE; ++i) {
+          if (_messages[i].origin[0] && strcmp(_messages[i].origin, old_name) == 0)
+            StrHelper::strncpy(_messages[i].origin, readback.name, sizeof(_messages[i].origin));
+        }
         _active_contact = readback; StrHelper::strncpy(_active_name, readback.name, sizeof(_active_name));
+        persistenceCheckpoint(true);
         _task->showAlert("Contact update verified", 950);
         resetAdmin(ADMIN_CONTACT_MANAGE); _dirty = DIRTY_ALL; return true;
       }
