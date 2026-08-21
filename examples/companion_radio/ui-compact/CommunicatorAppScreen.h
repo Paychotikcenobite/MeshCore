@@ -48,6 +48,17 @@ public:
   bool handleContactAddInput(char c);
   void drawContactAddOverlay(DisplayDriver& display);
 
+  // Piece 5 contact/group administration is a modal overlay. It deliberately
+  // sits above the existing routes so the physically validated v8 touch path
+  // and Piece 4 chat/send renderer remain untouched.
+  bool piece5AdminActive() const;
+  bool tryBeginPiece5Admin(int16_t x, int16_t y, uint8_t gesture);
+  bool handlePiece5AdminTouch(int16_t x, int16_t y, uint8_t gesture);
+  bool handlePiece5AdminInput(char c);
+  void drawPiece5AdminOverlay(DisplayDriver& display);
+  void drawPiece5Affordances(DisplayDriver& display);
+  void openOwnContactQr();
+
   void redrawHeaderActionIcons(DisplayDriver& display);
   void redrawHeaderActionIconsFluent(DisplayDriver& display);
   bool fullVisualRedrawPending() const;
