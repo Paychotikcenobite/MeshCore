@@ -7,6 +7,8 @@ TASK="examples/companion_radio/ui-compact/UITask.cpp"
 TOUCH="examples/companion_radio/ui-compact/TouchDrvGT911Recovery.hpp"
 PERSIST="examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
 CONTACT="examples/companion_radio/ui-compact/CommunicatorContactAdd.cpp"
+ADMIN_CODEC="examples/companion_radio/ui-compact/CommunicatorAdminCodec.cpp"
+ADMIN_MESH="examples/companion_radio/ui-compact/MyMeshCompactAdmin.cpp"
 VISUAL="examples/companion_radio/ui-compact/CommunicatorVisualPolish.cpp"
 DISPLAY="src/helpers/ui/ST7789LCDDisplay.cpp"
 ROADMAP="docs/communicator-compact-roadmap.md"
@@ -88,14 +90,18 @@ require "$UI" '"Delete local history"' 'Delete action must remain explicitly loc
 require "$UI" '_show_public' 'Public / World visibility must remain a distinct setting'
 require "$UI" 'ROUTE_NEW_CONVERSATION' 'New Conversation must remain a daughter screen'
 
-# Standalone contact creation: without this, a fresh T-Deck cannot initiate DMs.
-require "$TASK" 'app->manualContactsBegin();' 'manual contacts must rehydrate after normal MeshCore startup'
+# Standalone contact creation: Piece 5 replaces the early Preferences shadow DB
+# with the real MeshCore contact store and verifies persistence before success.
+require "$TASK" 'app->manualContactsBegin();' 'contact compatibility hook must remain after normal MeshCore startup'
 require "$TASK" 'app->tryBeginContactAdd' 'New Conversation Add contact must enter the real standalone editor'
-require "$CONTACT" 'the_mesh.addContact(ci)' 'manual public-key contacts must become real BaseChatMesh contacts'
-require "$CONTACT" 'the_mesh.lookupContactByPubKey' 'contact editor must update/deduplicate by full identity key'
-require "$CONTACT" 'Public key - 32 bytes / 64 hex digits' 'editor must make the full-key requirement explicit'
-require "$CONTACT" 'mcccontacts' 'manual contacts must survive reboot independently of volatile UI state'
-require "$CONTACT" 'c.out_path_len = OUT_PATH_UNKNOWN' 'manually added contacts must start flood-capable until a direct route is learned'
+require "$CONTACT" 'compactUpsertContactVerified' 'contact editor must use the verified MeshCore write/read-back wrapper'
+require "$CONTACT" 'CompactAdminCodec::parseContactInput' 'contact editor must accept exact full-key/Communicator URI input'
+require "$ADMIN_CODEC" 'strlen(input) != 64' 'raw public-key entry must still require all 64 hex digits'
+require "$ADMIN_CODEC" 'out.out_path_len = OUT_PATH_UNKNOWN' 'manually added contacts must start flood-capable until a direct route is learned'
+require "$ADMIN_MESH" 'lookupContactByPubKey(requested.id.pub_key, PUB_KEY_SIZE)' 'verified contact upsert must deduplicate by full identity key'
+require "$ADMIN_MESH" 'openRead("/contacts3")' 'contact success must be checked against MeshCore persistent storage'
+forbid "$CONTACT" 'Preferences' 'Piece 5 contact editor must not recreate the obsolete parallel Preferences contact database'
+forbid "$CONTACT" 'mcccontacts' 'obsolete manual-contact namespace must not return'
 
 # Piece 3: durable, identity-keyed local data engine.
 require "$UI_H" 'static const int MESSAGE_CACHE = 96;' 'persistent working-set limit must remain explicit and bounded'
