@@ -1,0 +1,41 @@
+name: Apply Communicator Compact v14 source patch
+
+on:
+  push:
+    branches:
+      - communicator-compact
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore(compact): stage v14 regression patch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout patch staging head
+        uses: actions/checkout@v6
+        with:
+          ref: communicator-compact
+          fetch-depth: 0
+
+      - name: Apply narrowly scoped v14 source changes
+        run: python3 tools/communicator_compact_v14_patch.py
+
+      - name: Commit regression fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- \
+            examples/companion_radio/ui-compact/CommunicatorAppScreen.cpp \
+            examples/companion_radio/ui-compact/MyMeshCompactDelivery.cpp \
+            examples/companion_radio/MyMesh.h \
+            examples/companion_radio/MyMesh.cpp \
+            tests/CommunicatorCompactUiChecks.sh \
+            tests/CommunicatorCompactDeliveryChecks.sh \
+            tests/CommunicatorCompactPiece4CompleteChecks.sh \
+            docs/communicator-compact-piece4-complete.md \
+            .github/workflows/communicator-compact-ci.yml
+          git diff --cached --check
+          git commit -m "fix(compact): remove UI flicker and harden ACK confirmation"
+          git push origin HEAD:communicator-compact
