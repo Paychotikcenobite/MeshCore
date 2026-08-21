@@ -94,11 +94,6 @@ ColorVal colorValue(uint8_t color, bool light) {
   }
 }
 
-bool allZero(const uint8_t* data, size_t len) {
-  for (size_t i = 0; i < len; ++i) if (data[i]) return false;
-  return true;
-}
-
 void makePrivateGroup(const char* name, ChannelDetails& ch) {
   memset(&ch, 0, sizeof(ch));
   StrHelper::strncpy(ch.name, name, sizeof(ch.name));
@@ -305,12 +300,25 @@ void CommunicatorAppScreen::drawPiece5AdminOverlay(DisplayDriver& d) {
 static int menuCountFor(const CommunicatorAppScreen* /*self*/) {
   if (g_admin.mode == ADMIN_GROUP_HOME) return 4;
   if (g_admin.mode == ADMIN_CONTACT_MANAGE) return 7;
-  if (g_admin.mode == ADMIN_GROUP_MANAGE) return 12; // clamped by action handler for Public
+  if (g_admin.mode == ADMIN_GROUP_MANAGE) return 11;
   return 0;
 }
 
 bool CommunicatorAppScreen::handlePiece5AdminTouch(int16_t x, int16_t y, uint8_t gesture) {
-  if (!g_admin.active || gesture != COMPACT_TOUCH_TAP) return false;
+  if (!g_admin.active) return false;
+  int count = menuCountFor(this);
+  if (g_admin.mode == ADMIN_GROUP_MANAGE && _active_channel_index == 0) count = 5;
+  if (gesture == COMPACT_TOUCH_SWIPE_UP || gesture == COMPACT_TOUCH_SWIPE_DOWN) {
+    if (count > 0) {
+      int next = (int)g_admin.selected + (gesture == COMPACT_TOUCH_SWIPE_UP ? 3 : -3);
+      if (next < 0) next = 0;
+      if (next >= count) next = count - 1;
+      g_admin.selected = (uint8_t)next;
+      _dirty = DIRTY_ALL;
+    }
+    return true;
+  }
+  if (gesture != COMPACT_TOUCH_TAP) return true;
   if (x < 42 && y >= 44 && y <= 78) {
     g_admin.active = false; _dirty = DIRTY_ALL; return true;
   }
@@ -336,7 +344,9 @@ bool CommunicatorAppScreen::handlePiece5AdminTouch(int16_t x, int16_t y, uint8_t
   if (y >= 79 && y < 228) {
     int row = (y - 81) / 21;
     if (row < 0) row = 0;
-    g_admin.selected = g_admin.offset + row;
+    int chosen = g_admin.offset + row;
+    if (count > 0 && chosen >= count) chosen = count - 1;
+    g_admin.selected = (uint8_t)chosen;
     return handlePiece5AdminInput(KEY_ENTER);
   }
   return true;
