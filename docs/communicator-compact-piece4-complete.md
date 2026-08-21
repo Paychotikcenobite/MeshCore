@@ -31,4 +31,4 @@ There is no fabricated durable pre-handoff `Queued` stage in this implementation
 - The standard non-Compact T-Deck reference target remains separately built in CI.
 - No physical device flashing is part of Piece 4 completion.
 
-The release candidate for this completed Piece 4 scope is identified in CI as `compact-v13-piece4-complete`.
+The release candidate for this completed Piece 4 scope is identified in CI as `compact-v14-ui-ack-fix` (hardware regression-fix candidate).

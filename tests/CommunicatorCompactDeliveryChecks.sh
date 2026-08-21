@@ -8,6 +8,7 @@ ACTIONS_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorMessageAction
 PERSIST_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorAppPersistence.cpp"
 UNREAD_CPP="$ROOT/examples/companion_radio/ui-compact/CommunicatorUnreadNavigation.cpp"
 MESH_H="$ROOT/examples/companion_radio/MyMesh.h"
+MESH_CPP="$ROOT/examples/companion_radio/MyMesh.cpp"
 MESH_DELIVERY_CPP="$ROOT/examples/companion_radio/ui-compact/MyMeshCompactDelivery.cpp"
 UI_TASK_CPP="$ROOT/examples/companion_radio/ui-compact/UITask.cpp"
 
@@ -40,6 +41,9 @@ require "CompactAckTrack" "$MESH_DELIVERY_CPP" "compact ACKs must retain their s
 require "CompactAttemptStart" "$MESH_DELIVERY_CPP" "attempt metadata must be staged separately from ACK metadata"
 require "before any failure return" "$MESH_DELIVERY_CPP" "failed sends must still preserve attempt/route evidence"
 require "entry.msg_sent != track.msg_sent" "$MESH_DELIVERY_CPP" "overwritten ACK slots must not become false confirmations"
+require "noteCompactAckReceived" "$MESH_CPP" "real MeshCore ACK receive path must latch compact confirmation before clearing the shared token"
+require "track.confirmed" "$MESH_DELIVERY_CPP" "compact ACK tracker must retain explicit positive receive evidence"
+require "const unsigned long msg_sent = _ms->getMillis();" "$MESH_DELIVERY_CPP" "compact ACK registration timing must match the established post-handoff phone/BLE pattern"
 require "Unknown must never mean delivered" "$MESH_DELIVERY_CPP" "unknown ACK state must fail conservatively"
 require "entry.msg_sent == track.msg_sent && entry.ack == ack" "$MESH_DELIVERY_CPP" "timeout cleanup must not clear another sender's ACK"
 require "takeCompactAttemptStart" "$DELIVERY_CPP" "initial direct send must bind staged attempt metadata to its bubble"

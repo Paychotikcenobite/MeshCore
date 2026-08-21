@@ -57,7 +57,12 @@ require "$PERSIST" 'void CommunicatorAppScreen::openSettingsSingleTop()' 'single
 require "$PERSIST" 'void CommunicatorAppScreen::navigateBack()' 'universal back implementation must exist'
 
 # Visual polish: recognisable Windows/Fluent header glyphs with real coverage AA.
-require "$TASK" 'redrawHeaderActionIconsFluent' 'runtime must use the Fluent icon layer rather than the v10 line-art fallback'
+require "$TASK" 'redrawHeaderActionIconsFluent' 'runtime must retain the Fluent icon layer'
+require "$UI" 'redrawHeaderActionIconsFluent(d);' 'header must paint Fluent icons in-place before body rendering can expose legacy glyphs'
+forbid "$UI" 'drawRadioGlyph(d,256,21)' 'header must not paint the obsolete radio line-art glyph first'
+forbid "$UI" 'drawGear(d,297,21)' 'header must not paint the obsolete gear line-art glyph first'
+require "$UI" 'if(_dirty==DIRTY_COMPOSER)' 'keypress redraw must use the composer-only fast path'
+require "$UI" 'd.fillRect(12,211,181,15)' 'keypress redraw must be bounded to the input text interior instead of the full composer strip'
 require "$VISUAL" 'SETTINGS24_A4' 'Settings must use a rasterized Fluent-style 24px mask'
 require "$VISUAL" 'WIFI24_A4' 'wireless action must use a 24px Windows/Fluent fan mask'
 require "$VISUAL" 'blend565' 'anti-aliased icon edges must blend coverage into their button background'

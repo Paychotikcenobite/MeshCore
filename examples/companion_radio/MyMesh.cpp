@@ -415,6 +415,10 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
   // see if matches any in a table
   for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
     if (memcmp(data, &expected_ack_table[i].ack, 4) == 0) { // got an ACK from recipient
+#ifdef MESHCORE_COMPACT_UI
+      // Latch the real receive event before the shared ACK token is cleared.
+      noteCompactAckReceived(expected_ack_table[i].ack, expected_ack_table[i].msg_sent);
+#endif
       out_frame[0] = PUSH_CODE_SEND_CONFIRMED;
       memcpy(&out_frame[1], data, 4);
       uint32_t trip_time = _ms->getMillis() - expected_ack_table[i].msg_sent;
