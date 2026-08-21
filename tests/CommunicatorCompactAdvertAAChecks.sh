@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PROMPT="$ROOT/examples/companion_radio/ui-compact/CommunicatorAdvertPrompt.cpp"
 AA="$ROOT/examples/companion_radio/ui-compact/CompactAARender.cpp"
+REG="$ROOT/examples/companion_radio/ui-compact/CompactAAReg9.inc"
+MED="$ROOT/examples/companion_radio/ui-compact/CompactAAMed11.inc"
 AAPASS="$ROOT/examples/companion_radio/ui-compact/CommunicatorVisualAAText.cpp"
 TASK="$ROOT/examples/companion_radio/ui-compact/UITask.cpp"
 DISPLAY="$ROOT/src/helpers/ui/LGFXDisplay.cpp"
@@ -23,9 +25,9 @@ need "$TASK" 'handleAdvertPromptTouch'
 need "$TASK" 'handleAdvertPromptInput'
 need "$TASK" 'drawAdvertPromptOverlay'
 
-need "$AA" 'packed 4-bit grayscale coverage'
-need "$AA" 'REG9_A4_B64'
-need "$AA" 'MED11_A4_B64'
+need "$REG" 'generated offline at 4x then Lanczos downsampled'
+need "$REG" 'REG9_A4_B64'
+need "$MED" 'MED11_A4_B64'
 need "$AA" 'blend565'
 need "$AAPASS" 'redrawAATextPass'
 need "$AAPASS" 'redrawAAComposerText'
