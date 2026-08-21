@@ -8,6 +8,7 @@ CONTACT="$ROOT/examples/companion_radio/ui-compact/CommunicatorContactAdd.cpp"
 MESH="$ROOT/examples/companion_radio/ui-compact/MyMeshCompactAdmin.cpp"
 TASK="$ROOT/examples/companion_radio/ui-compact/UITask.cpp"
 PIO="$ROOT/variants/lilygo_tdeck/platformio.ini"
+WORKFLOW="$ROOT/.github/workflows/communicator-compact-ci.yml"
 
 need() { grep -Fq "$2" "$1" || { echo "Piece 5 contract missing: $2" >&2; exit 1; }; }
 forbid() { ! grep -Fq "$2" "$1" || { echo "Piece 5 contract forbids: $2" >&2; exit 1; }; }
@@ -50,7 +51,10 @@ need "$ADMIN" 'colorName'
 need "$ADMIN" 'qrcode_initText'
 need "$ADMIN" 'qrcode_getModule'
 need "$ADMIN" 'MESHCORE_SHARE'
+need "$ADMIN" 'COMPACT_TOUCH_SWIPE_UP'
+need "$ADMIN" 'COMPACT_TOUCH_SWIPE_DOWN'
 need "$PIO" 'ricmoo/QRCode @ 0.0.1'
+need "$WORKFLOW" 'FIRMWARE_VERSION: compact-v15-piece5-contacts-groups'
 
 # Piece 5 is layered into UITask dispatch; the validated GT911 classifier stays
 # exactly in the existing polling path and is not replaced by the admin code.
