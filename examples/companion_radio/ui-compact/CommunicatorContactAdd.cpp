@@ -111,6 +111,9 @@ bool CommunicatorAppScreen::handleContactAddInput(char c) {
       return true;
     }
 
+    // This contact was explicitly added by the user, so it must become part of
+    // the advert baseline rather than being mistaken for a newly heard RF node.
+    syncAdvertContactBaseline();
     _task->showAlert("Contact saved + verified", 1000);
     g_contact.active = false;
     _selected = _list_offset = 0;
