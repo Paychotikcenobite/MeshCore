@@ -124,6 +124,15 @@ public:
   bool isCompactAckPending(uint32_t ack) const;
   void noteCompactAckReceived(uint32_t ack, unsigned long msg_sent);
   void releaseCompactAck(uint32_t ack);
+
+  // Piece 5 standalone administration. These wrappers persist immediately and
+  // verify the on-flash contacts/channels record before returning success.
+  bool compactUpsertContactVerified(const ContactInfo& requested, ContactInfo& readback);
+  bool compactRemoveContactVerified(const uint8_t pub_key[32]);
+  bool compactSetPrivateChannelVerified(uint8_t channel_idx, const ChannelDetails& requested,
+                                        ChannelDetails& readback);
+  bool compactClearPrivateChannelVerified(uint8_t channel_idx);
+  int compactFindFreePrivateChannel();
 #endif
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
