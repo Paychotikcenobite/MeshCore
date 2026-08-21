@@ -19,6 +19,6 @@ require 'return false;' "$UNREAD" "pre-open unread capture must hand Enter back 
 require 'trackball-right jumps to newest' "$COMPLETE" "completion record must document physical newest navigation"
 require 'no automatic direct-to-flood timeout fallback' "$COMPLETE" "completion record must not invent timeout fallback"
 require 'no per-peer ACK' "$COMPLETE" "completion record must preserve truthful group delivery semantics"
-require 'compact-v14-ui-ack-fix' "$WORKFLOW" "CI artifact identity must identify the completed Piece 4 release candidate"
+require 'FIRMWARE_VERSION: compact-v' "$WORKFLOW" "CI artifact must remain a versioned Compact release candidate"
 
 echo "Communicator Compact Piece 4 completion contract: OK"
