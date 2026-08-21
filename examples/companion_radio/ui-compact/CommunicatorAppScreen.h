@@ -48,6 +48,16 @@ public:
   bool handleContactAddInput(char c);
   void drawContactAddOverlay(DisplayDriver& display);
 
+  // Piece 5 advert UX: detect chat contacts that were just learned from an RF
+  // advert, then make the auto-add decision explicit on the T-Deck itself.
+  void primeAdvertContactBaseline();
+  void syncAdvertContactBaseline();
+  void pollAdvertContactChanges();
+  bool advertPromptActive() const;
+  bool handleAdvertPromptTouch(int16_t x, int16_t y, uint8_t gesture);
+  bool handleAdvertPromptInput(char c);
+  void drawAdvertPromptOverlay(DisplayDriver& display);
+
   // Piece 5 contact/group administration is a modal overlay. It deliberately
   // sits above the existing routes so the physically validated v8 touch path
   // and Piece 4 chat/send renderer remain untouched.
@@ -61,6 +71,8 @@ public:
 
   void redrawHeaderActionIcons(DisplayDriver& display);
   void redrawHeaderActionIconsFluent(DisplayDriver& display);
+  void redrawAATextPass(DisplayDriver& display);
+  void redrawAAComposerText(DisplayDriver& display);
   bool fullVisualRedrawPending() const;
 
   // Piece 4 delivery lifecycle. The radio ACK table remains authoritative;
