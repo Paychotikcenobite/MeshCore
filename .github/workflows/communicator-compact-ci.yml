@@ -18,6 +18,9 @@ concurrency:
 
 jobs:
   compact:
+    # This repository is public, so standard GitHub-hosted runner compute is free.
+    # Routine CI deliberately does NOT upload Actions artifacts; hardware-test
+    # binaries are delivered by the manual self-hosted prerelease workflow.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -45,36 +48,7 @@ jobs:
           ls -lh out
           sha256sum out/*
 
-      - name: Upload Communicator Compact firmware
-        uses: actions/upload-artifact@v7
-        with:
-          name: tdeck-communicator-compact
-          path: out/*
-          if-no-files-found: error
-
-  reference:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup MeshCore build environment
-        uses: ./.github/actions/setup-build-environment
-
-      - name: Build standard LilyGO T-Deck BLE communicator
-        env:
-          FIRMWARE_VERSION: reference
-        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_companion_radio_ble
-
-      - name: Record reference firmware identity
+      - name: Confirm quota-safe CI policy
         run: |
-          echo "Commit: $GITHUB_SHA"
-          ls -lh out
-          sha256sum out/*
-
-      - name: Upload upstream T-Deck reference firmware
-        uses: actions/upload-artifact@v7
-        with:
-          name: tdeck-upstream-reference
-          path: out/*
-          if-no-files-found: error
+          echo "Routine CI complete. No GitHub Actions artifact was retained."
+          echo "Use 'T-Deck Communicator candidate (self-hosted)' for downloadable hardware-test firmware."
