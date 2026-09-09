@@ -1,0 +1,48 @@
+name: LilyGO self-hosted runner healthcheck
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  healthcheck:
+    runs-on: [self-hosted, lilygo]
+    timeout-minutes: 10
+    steps:
+      - name: Verify LEVIATHAN LilyGO runner
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runnerRoot = 'C:\actions-runner-lilygo'
+          $pio = Join-Path $runnerRoot '_toolcache\platformio\Scripts\pio.exe'
+          if (-not (Test-Path $pio)) { throw "PlatformIO missing at $pio" }
+          & $pio --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $bashCandidates = @(
+            'C:\actions-runner\_toolcache\portable-git\bin\bash.exe',
+            (Join-Path $runnerRoot '_toolcache\portable-git\bin\bash.exe'),
+            'C:\Program Files\Git\bin\bash.exe'
+          )
+          $bash = $bashCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $bash) { throw 'Git Bash is unavailable.' }
+          & $bash --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $service = Get-CimInstance Win32_Service | Where-Object {
+            $_.PathName -like "*$runnerRoot*RunnerService.exe*"
+          } | Select-Object -First 1
+          if (-not $service) { throw 'Scoped LilyGO runner service was not found.' }
+
+          $watchdog = Join-Path $runnerRoot '_watchdog\lilygo-runner-watchdog.ps1'
+          if (-not (Test-Path $watchdog)) { throw 'LilyGO watchdog script is missing.' }
+
+          Write-Host "Runner name: $env:RUNNER_NAME"
+          Write-Host "Computer: $env:COMPUTERNAME"
+          Write-Host "Service: $($service.Name) / $($service.State)"
+          Write-Host "PlatformIO: $pio"
+          Write-Host "Git Bash: $bash"
+          Write-Host "Watchdog: $watchdog"
+          Write-Host 'LilyGO self-hosted runner healthcheck PASSED.'
