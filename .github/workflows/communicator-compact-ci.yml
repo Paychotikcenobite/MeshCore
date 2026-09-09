@@ -1,0 +1,54 @@
+name: Communicator Compact CI
+
+on:
+  push:
+    branches:
+      - communicator-compact
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: communicator-compact-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compact:
+    # This repository is public, so standard GitHub-hosted runner compute is free.
+    # Routine CI deliberately does NOT upload Actions artifacts; hardware-test
+    # binaries are delivered by the manual self-hosted prerelease workflow.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Check Communicator Compact Piece 1 through 5 contract
+        run: |
+          /usr/bin/env bash tests/CommunicatorCompactUiChecks.sh
+          /usr/bin/env bash tests/CommunicatorCompactDeliveryChecks.sh
+          /usr/bin/env bash tests/CommunicatorCompactPiece4CompleteChecks.sh
+          /usr/bin/env bash tests/CommunicatorCompactPiece5Checks.sh
+          /usr/bin/env bash tests/CommunicatorCompactAdvertAAChecks.sh
+
+      - name: Setup MeshCore build environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Communicator Compact target
+        env:
+          FIRMWARE_VERSION: compact-v16-piece5-advert-aa
+        run: /usr/bin/env bash build.sh build-firmware LilyGo_TDeck_communicator_compact_ble
+
+      - name: Record compact firmware identity
+        run: |
+          echo "Commit: $GITHUB_SHA"
+          ls -lh out
+          sha256sum out/*
+
+      - name: Confirm quota-safe CI policy
+        run: |
+          echo "Routine CI complete. No GitHub Actions artifact was retained."
+          echo "Use 'T-Deck Communicator candidate (self-hosted)' for downloadable hardware-test firmware."

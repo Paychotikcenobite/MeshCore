@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Wire.h>
 #include "TDeckBoard.h"
 
 uint32_t deviceOnline = 0x00;
@@ -10,6 +11,14 @@ void TDeckBoard::begin() {
   // Enable peripheral power
   pinMode(PIN_PERF_POWERON, OUTPUT);
   digitalWrite(PIN_PERF_POWERON, HIGH);
+
+#ifdef MESHCORE_COMPACT_UI
+  // The standard T-Deck touch controller and keyboard share the board I2C bus.
+  // Match LILYGO/Launcher hardware initialization: SDA 18, SCL 8.
+  // The short delay gives the on-board ESP32-C3 keyboard/peripherals time to boot.
+  delay(500);
+  Wire.begin(18, 8);
+#endif
 
   // Configure user button
   pinMode(PIN_USER_BTN, INPUT);

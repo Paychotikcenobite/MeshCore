@@ -1,0 +1,184 @@
+name: T-Deck Communicator candidate (self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate_name:
+        description: Short hardware-test candidate label
+        required: false
+        default: manual
+      include_reference:
+        description: Also build the upstream T-Deck reference firmware
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tdeck-self-hosted-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, lilygo]
+    timeout-minutes: 45
+
+    steps:
+      - name: Build, verify, and publish T-Deck candidate
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_NAME: ${{ inputs.candidate_name }}
+          INCLUDE_REFERENCE: ${{ inputs.include_reference }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) { throw 'GitHub token is missing.' }
+          $runnerRoot = 'C:\actions-runner-lilygo'
+          $toolCache = Join-Path $runnerRoot '_toolcache'
+          $pioVenv = Join-Path $toolCache 'platformio'
+          $pioExe = Join-Path $pioVenv 'Scripts\pio.exe'
+          if (-not (Test-Path $pioExe)) {
+            throw "Cached PlatformIO is missing at $pioExe. Run scripts/bootstrap-lilygo-runner.ps1 on LEVIATHAN."
+          }
+
+          $bashCandidates = @(
+            'C:\actions-runner\_toolcache\portable-git\bin\bash.exe',
+            (Join-Path $toolCache 'portable-git\bin\bash.exe'),
+            'C:\Program Files\Git\bin\bash.exe'
+          )
+          $bashExe = $bashCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $bashExe) {
+            $bashCmd = Get-Command bash.exe -ErrorAction SilentlyContinue
+            if ($bashCmd) { $bashExe = $bashCmd.Source }
+          }
+          if (-not $bashExe) { throw 'Git Bash is unavailable on lilygo-builder.' }
+
+          $env:PATH = "$(Split-Path $pioExe -Parent);$env:PATH"
+          & $pioExe --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'meshcore-lilygo-self-hosted-runner'
+          }
+          $repoApi = "https://api.github.com/repos/$env:GITHUB_REPOSITORY"
+
+          # Materialize the exact dispatched commit without depending on checkout
+          # state from an earlier self-hosted job.
+          Set-Location $env:GITHUB_WORKSPACE
+          Get-ChildItem -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          $zip = Join-Path $env:RUNNER_TEMP "meshcore-lilygo-$env:GITHUB_SHA.zip"
+          $unpack = Join-Path $env:RUNNER_TEMP "meshcore-lilygo-$env:GITHUB_SHA"
+          Remove-Item -Force -ErrorAction SilentlyContinue $zip
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $unpack
+          Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "$repoApi/zipball/$env:GITHUB_SHA" -OutFile $zip
+          New-Item -ItemType Directory -Force -Path $unpack | Out-Null
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $unpack)
+          $root = Get-ChildItem $unpack -Directory | Select-Object -First 1
+          if (-not $root) { throw 'Source archive is empty.' }
+          Get-ChildItem -Force $root.FullName | ForEach-Object { Move-Item -LiteralPath $_.FullName -Destination $env:GITHUB_WORKSPACE -Force }
+          Remove-Item -Force -ErrorAction SilentlyContinue $zip
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $unpack
+
+          # Preserve the validated Compact behavior contract before producing a
+          # hardware-test binary.
+          $checks = @(
+            'tests/CommunicatorCompactUiChecks.sh',
+            'tests/CommunicatorCompactDeliveryChecks.sh',
+            'tests/CommunicatorCompactPiece4CompleteChecks.sh',
+            'tests/CommunicatorCompactPiece5Checks.sh',
+            'tests/CommunicatorCompactAdvertAAChecks.sh'
+          )
+          foreach ($check in $checks) {
+            & $bashExe -lc "export LANG=C; export LC_ALL=C; set -euo pipefail; bash '$check'"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          $shortSha = $env:GITHUB_SHA.Substring(0, 8)
+          $label = if ([string]::IsNullOrWhiteSpace($env:CANDIDATE_NAME)) { 'manual' } else { $env:CANDIDATE_NAME }
+          $label = ($label -replace '[^A-Za-z0-9._-]', '-')
+          $firmwareVersion = "compact-$label-$shortSha"
+          $dist = Join-Path $env:GITHUB_WORKSPACE 'dist'
+          New-Item -ItemType Directory -Force -Path $dist | Out-Null
+
+          # Build the Communicator Compact firmware.
+          Remove-Item -Recurse -Force -ErrorAction SilentlyContinue (Join-Path $env:GITHUB_WORKSPACE 'out')
+          $env:FIRMWARE_VERSION = $firmwareVersion
+          & $bashExe -lc './build.sh build-firmware LilyGo_TDeck_communicator_compact_ble'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $out = Join-Path $env:GITHUB_WORKSPACE 'out'
+          if (-not (Test-Path $out)) { throw 'Compact build did not create out/.' }
+
+          $compactZip = Join-Path $dist "MeshCore-TDeck-Communicator-$firmwareVersion.zip"
+          Compress-Archive -Path (Join-Path $out '*') -DestinationPath $compactZip -Force
+
+          $assetsToPublish = @($compactZip)
+          if ($env:INCLUDE_REFERENCE -eq 'true') {
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $out
+            $env:FIRMWARE_VERSION = "reference-$shortSha"
+            & $bashExe -lc './build.sh build-firmware LilyGo_TDeck_companion_radio_ble'
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if (-not (Test-Path $out)) { throw 'Reference build did not create out/.' }
+            $referenceZip = Join-Path $dist "MeshCore-TDeck-Upstream-Reference-$shortSha.zip"
+            Compress-Archive -Path (Join-Path $out '*') -DestinationPath $referenceZip -Force
+            $assetsToPublish += $referenceZip
+          }
+
+          $shaFile = Join-Path $dist "MeshCore-TDeck-$firmwareVersion.sha256"
+          $shaLines = foreach ($asset in $assetsToPublish) {
+            $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($asset))"
+          }
+          [IO.File]::WriteAllLines($shaFile, $shaLines, [Text.Encoding]::ASCII)
+          $assetsToPublish += $shaFile
+
+          # Match the Android project delivery model: durable GitHub prerelease
+          # assets, never Actions artifacts. This avoids Actions storage quota.
+          $tag = "tdeck-selfhost-$label-$shortSha"
+          $release = $null
+          try {
+            $release = Invoke-RestMethod -Headers $headers -Uri "$repoApi/releases/tags/$tag"
+          } catch {
+            if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+          }
+          $bodyText = "Self-hosted T-Deck Communicator candidate. Source: $env:GITHUB_SHA. Firmware identity: $firmwareVersion. Built on $env:RUNNER_NAME."
+          if (-not $release) {
+            $body = @{
+              tag_name = $tag
+              target_commitish = $env:GITHUB_SHA
+              name = "MeshCore T-Deck Communicator $firmwareVersion"
+              body = $bodyText
+              draft = $false
+              prerelease = $true
+            } | ConvertTo-Json -Compress
+            $release = Invoke-RestMethod -Method Post -Headers $headers -ContentType 'application/json' -Uri "$repoApi/releases" -Body $body
+          } else {
+            $body = @{
+              target_commitish = $env:GITHUB_SHA
+              name = "MeshCore T-Deck Communicator $firmwareVersion"
+              body = $bodyText
+              draft = $false
+              prerelease = $true
+            } | ConvertTo-Json -Compress
+            $release = Invoke-RestMethod -Method Patch -Headers $headers -ContentType 'application/json' -Uri "$repoApi/releases/$($release.id)" -Body $body
+          }
+
+          $existingAssets = Invoke-RestMethod -Headers $headers -Uri "$repoApi/releases/$($release.id)/assets"
+          foreach ($assetPath in $assetsToPublish) {
+            $name = [IO.Path]::GetFileName($assetPath)
+            $old = $existingAssets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+            if ($old) {
+              Invoke-RestMethod -Method Delete -Headers $headers -Uri "$repoApi/releases/assets/$($old.id)" | Out-Null
+            }
+            $escaped = [Uri]::EscapeDataString($name)
+            Invoke-WebRequest -UseBasicParsing -Method Post -Headers $headers -ContentType 'application/octet-stream' -InFile $assetPath -Uri "https://uploads.github.com/repos/$env:GITHUB_REPOSITORY/releases/$($release.id)/assets?name=$escaped" | Out-Null
+          }
+
+          Write-Host "Published T-Deck candidate: $($release.html_url)"
+          Write-Host 'No GitHub Actions artifact was created.'

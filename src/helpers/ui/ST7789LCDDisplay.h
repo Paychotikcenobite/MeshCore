@@ -19,14 +19,19 @@ class ST7789LCDDisplay : public DisplayDriver {
   bool i2c_probe(TwoWire& wire, uint8_t addr);
 public:
 #ifdef USE_PIN_TFT
-  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64), 
+  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64),
       display(PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_SDA, PIN_TFT_SCL, PIN_TFT_RST),
       _peripher_power(peripher_power)
   {
     _isOn = false;
   }
 #elif defined(LILYGO_TDECK) || defined(HELTEC_LORA_V4_TFT) || defined(HELTEC_V4_R8_TFT)
-  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64),
+  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) :
+  #if defined(LILYGO_TDECK) && defined(MESHCORE_COMPACT_UI)
+      DisplayDriver(320, 240),
+  #else
+      DisplayDriver(128, 64),
+  #endif
       displaySPI(HSPI),
       display(&displaySPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST),
       _peripher_power(peripher_power)
@@ -34,7 +39,7 @@ public:
     _isOn = false;
   }
 #else
-  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64), 
+  ST7789LCDDisplay(RefCountedDigitalPin* peripher_power=NULL) : DisplayDriver(128, 64),
       display(&SPI, PIN_TFT_CS, PIN_TFT_DC, PIN_TFT_RST),
       _peripher_power(peripher_power)
   {
@@ -54,6 +59,11 @@ public:
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
+  void fillRoundRect(int x, int y, int w, int h, int r) override;
+  void drawRoundRect(int x, int y, int w, int h, int r) override;
+  void drawLine(int x0, int y0, int x1, int y1) override;
+  void fillCircle(int x, int y, int r) override;
+  void drawCircle(int x, int y, int r) override;
   void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override;
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;

@@ -10,9 +10,10 @@ on:
 
 jobs:
   test:
+    # Keep routine validation on the free public-repository hosted runner, but do
+    # not retain .pio output as an Actions artifact. Test logs remain on the run.
     runs-on: ubuntu-latest
     steps:
-
       - name: Clone Repo
         uses: actions/checkout@v4
 
@@ -22,10 +23,6 @@ jobs:
       - name: Run Unit Tests
         run: pio test -e native -e native_kiss_modem -vv
 
-      - name: Upload Test Results
-        # Upload test results even if the test step failed.
+      - name: Confirm quota-safe test policy
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: .pio/build/native/
+        run: echo "Unit-test run complete; no Actions artifact retained."

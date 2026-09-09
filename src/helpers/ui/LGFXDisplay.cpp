@@ -16,10 +16,21 @@ bool LGFXDisplay::begin() {
   display->init();
   display->setRotation(1);
   display->setBrightness(64);
+#ifdef MESHCORE_COMPACT_UI
+  // Compact's A4 renderer blends directly in RGB565. Keep the 320x240 PSRAM
+  // sprite at 16-bit so the 16 grayscale edge levels survive the framebuffer
+  // instead of being requantized through the legacy 8-bit palette.
+  display->setColorDepth(16);
+#else
   display->setColorDepth(8);
+#endif
   display->setTextColor(TFT_WHITE);
 
+#ifdef MESHCORE_COMPACT_UI
+  buffer.setColorDepth(16);
+#else
   buffer.setColorDepth(8);
+#endif
   buffer.setPsram(true);
   buffer.createSprite(width(), height());
 

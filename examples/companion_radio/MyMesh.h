@@ -100,6 +100,41 @@ public:
   bool advert();
   void enterCLIRescue();
 
+#ifdef MESHCORE_COMPACT_UI
+  // The compact on-device composer owns fixed-size char buffers. These array
+  // overloads bind only to on-device sends; phone/BLE pointer calls continue
+  // to use BaseChatMesh unchanged.
+  using BaseChatMesh::sendMessage;
+  template <size_t N>
+  int sendMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, char (&text)[N],
+                  uint32_t& expected_ack, uint32_t& est_timeout) {
+    return sendCompactMessage(recipient, timestamp, attempt, text, expected_ack, est_timeout);
+  }
+
+  using BaseChatMesh::sendGroupMessage;
+  template <size_t N>
+  bool sendGroupMessage(uint32_t timestamp, mesh::GroupChannel& channel, const char* sender_name,
+                        char (&text)[N], int text_len) {
+    return sendCompactGroupMessage(timestamp, channel, sender_name, text, text_len);
+  }
+
+  bool compactSendStartPending() const;
+  bool takeCompactSendStart(char* origin, size_t origin_len, uint32_t& ack, uint32_t& timeout_ms);
+  bool takeCompactAttemptStart(char* origin, size_t origin_len, uint8_t& attempt, uint8_t& path_len);
+  bool isCompactAckPending(uint32_t ack) const;
+  void noteCompactAckReceived(uint32_t ack, unsigned long msg_sent);
+  void releaseCompactAck(uint32_t ack);
+
+  // Piece 5 standalone administration. These wrappers persist immediately and
+  // verify the on-flash contacts/channels record before returning success.
+  bool compactUpsertContactVerified(const ContactInfo& requested, ContactInfo& readback);
+  bool compactRemoveContactVerified(const uint8_t pub_key[32]);
+  bool compactSetPrivateChannelVerified(uint8_t channel_idx, const ChannelDetails& requested,
+                                        ChannelDetails& readback);
+  bool compactClearPrivateChannelVerified(uint8_t channel_idx);
+  int compactFindFreePrivateChannel();
+#endif
+
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
 protected:
@@ -186,6 +221,13 @@ public:
   bool hasPendingWork() const;
 
 private:
+#ifdef MESHCORE_COMPACT_UI
+  int sendCompactMessage(const ContactInfo& recipient, uint32_t timestamp, uint8_t attempt, const char* text,
+                         uint32_t& expected_ack, uint32_t& est_timeout);
+  bool sendCompactGroupMessage(uint32_t timestamp, mesh::GroupChannel& channel, const char* sender_name,
+                               const char* text, int text_len);
+#endif
+
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();
